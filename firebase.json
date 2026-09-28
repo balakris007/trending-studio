@@ -4,6 +4,7 @@
     "indexes": "firestore.indexes.json"
   },
   "hosting": {
+    "site": "trending-studio",
     "public": "apps/web/dist",
     "ignore": [
       "firebase.json",
