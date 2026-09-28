@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Image,
 } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import axios from 'axios';
@@ -71,9 +72,11 @@ export default function LoginScreen() {
       <ScrollView contentContainerStyle={styles.scroll}>
         {/* Brand Card */}
         <View style={styles.brandBox}>
-          <View style={styles.logoBadge}>
-            <Text style={styles.logoText}>TS</Text>
-          </View>
+          <Image
+            source={require('../assets/logo.png')}
+            style={styles.brandLogo}
+            resizeMode="contain"
+          />
           <Text style={styles.brandTitle}>TRENDING STUDIO</Text>
           <Text style={styles.brandSubtitle}>GIFTS & FRAMES • KARAIKUDI</Text>
           <Text style={styles.address}>No:1, Meyyappan Ambalam Complex</Text>
@@ -138,20 +141,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 32,
   },
-  logoBadge: {
-    width: 68,
-    height: 68,
-    borderRadius: 20,
-    backgroundColor: '#2563eb',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-    elevation: 8,
-  },
-  logoText: {
-    color: '#ffffff',
-    fontSize: 28,
-    fontWeight: '900',
+  brandLogo: {
+    width: 200,
+    height: 110,
+    marginBottom: 12,
   },
   brandTitle: {
     color: '#ffffff',

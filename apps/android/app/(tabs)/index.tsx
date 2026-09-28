@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   RefreshControl,
+  Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAppStore } from '../../src/state/useAppStore';
@@ -93,9 +94,16 @@ export default function DashboardScreen() {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.brandTitle}>TRENDING STUDIO</Text>
-          <Text style={styles.staffGreeting}>Hello, {user?.name || 'Staff'}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Image
+            source={require('../../assets/icon.png')}
+            style={{ width: 44, height: 44, borderRadius: 10, marginRight: 12 }}
+            resizeMode="cover"
+          />
+          <View>
+            <Text style={styles.brandTitle}>TRENDING STUDIO</Text>
+            <Text style={styles.staffGreeting}>Hello, {user?.name || 'Staff'}</Text>
+          </View>
         </View>
 
         {/* Sync Pill */}
