@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
+import { dataService } from '../services/dataService';
 import { formatINR } from '@trending-studio/utils';
 import { BarChart3, Download, Calendar, FileSpreadsheet } from 'lucide-react';
 
@@ -18,7 +19,79 @@ export const Reports: React.FC = () => {
         setDailyData(dailyRes.data.data);
         setGstData(gstRes.data.data);
       } catch (err) {
-        console.error('Failed to load reports:', err);
+        // Fallback: Compute directly from Cloud Firestore & IndexedDB invoices
+        try {
+          const invoices = await dataService.getInvoices();
+          let todaySales = 0;
+          let cashCollected = 0;
+          let upiCollected = 0;
+          let todayInvoicesCount = 0;
+          const hsnMap = new Map<string, any>();
+
+          const startOfDay = new Date();
+          startOfDay.setHours(0, 0, 0, 0);
+
+          invoices.forEach((inv: any) => {
+            const amount = inv.grandTotal || inv.totalAmount || 0;
+            const invDate = new Date(inv.createdAt || Date.now());
+
+            if (invDate >= startOfDay) {
+              todaySales += amount;
+              todayInvoicesCount++;
+              if (Array.isArray(inv.payments)) {
+                inv.payments.forEach((p: any) => {
+                  if (p.method === 'CASH') cashCollected += p.amount || 0;
+                  else if (p.method === 'UPI') upiCollected += p.amount || 0;
+                });
+              } else {
+                if (inv.paymentMethod === 'UPI') upiCollected += amount;
+                else cashCollected += amount;
+              }
+            }
+
+            // HSN Aggregates
+            if (Array.isArray(inv.items)) {
+              inv.items.forEach((item: any) => {
+                const code = item.hsnSac || '9983';
+                const rate = item.gstRate ?? 18;
+                const totalItem = (item.unitPrice || 0) * (item.quantity || 1);
+                const taxable = totalItem / (1 + rate / 100);
+                const tax = totalItem - taxable;
+                const halfTax = tax / 2;
+
+                const existing = hsnMap.get(code) || {
+                  hsnSac: code,
+                  gstRate: rate,
+                  taxableAmount: 0,
+                  cgstAmount: 0,
+                  sgstAmount: 0,
+                  totalTax: 0,
+                  totalAmount: 0,
+                };
+
+                existing.taxableAmount += taxable;
+                existing.cgstAmount += halfTax;
+                existing.sgstAmount += halfTax;
+                existing.totalTax += tax;
+                existing.totalAmount += totalItem;
+                hsnMap.set(code, existing);
+              });
+            }
+          });
+
+          setDailyData({
+            todaySales,
+            todayInvoicesCount,
+            cashCollected,
+            upiCollected,
+          });
+
+          setGstData({
+            hsnSummary: Array.from(hsnMap.values()),
+          });
+        } catch (fsErr) {
+          console.warn('[Reports] Fallback failed:', fsErr);
+        }
       } finally {
         setLoading(false);
       }

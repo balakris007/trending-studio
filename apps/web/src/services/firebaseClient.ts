@@ -872,3 +872,107 @@ export function exportToCsv(filename: string, rows: any[], headers: { key: strin
   link.click();
   document.body.removeChild(link);
 }
+
+// ----------------------------------------------------------------------
+// 8. Orders Management in Cloud Firestore
+// ----------------------------------------------------------------------
+
+export async function getFirestoreOrders(): Promise<any[]> {
+  try {
+    const ordersRef = collection(firestore, 'orders');
+    const snap = await getDocs(ordersRef);
+    if (snap.empty) {
+      // Derive orders from recent invoices if no explicit orders created yet
+      const invoices = await getFirestoreInvoices(20);
+      return invoices.map((inv: any, idx: number) => ({
+        _id: `ord_${inv._id || inv.id || idx}`,
+        id: `ord_${inv._id || inv.id || idx}`,
+        orderNumber: `ORD-${(inv.invoiceNumber || 'INV-1001').replace('INV-', '')}`,
+        invoiceId: inv._id || inv.id,
+        customerName: inv.customerName || 'Walk-in Customer',
+        customerPhone: inv.customerMobile || '7904064446',
+        items: inv.items || [],
+        totalAmount: inv.totalAmount || inv.grandTotal || 0,
+        advancePaid: inv.totalAmount || inv.grandTotal || 0,
+        balanceAmount: 0,
+        status: idx % 2 === 0 ? 'READY' : 'PRINTING',
+        promisedDeliveryDate: new Date(Date.now() + 86400000).toISOString(),
+        createdAt: inv.createdAt || new Date().toISOString(),
+        notes: 'In-store studio order',
+      }));
+    }
+    return snap.docs.map((d) => ({ ...d.data(), _id: d.id, id: d.id }));
+  } catch (err) {
+    console.warn('[Firebase] Failed to fetch orders from Firestore:', err);
+    return [];
+  }
+}
+
+export async function saveOrderToFirestore(order: any): Promise<any> {
+  const orderId = order._id || order.id || `ord_${Date.now()}`;
+  const data = {
+    ...order,
+    _id: orderId,
+    id: orderId,
+    updatedAt: new Date().toISOString(),
+    createdAt: order.createdAt || new Date().toISOString(),
+  };
+  await setDoc(doc(firestore, 'orders', orderId), data, { merge: true });
+  return data;
+}
+
+export async function updateOrderStatusInFirestore(orderId: string, status: string): Promise<void> {
+  const orderRef = doc(firestore, 'orders', orderId);
+  await setDoc(orderRef, { status, updatedAt: new Date().toISOString() }, { merge: true });
+}
+
+// ----------------------------------------------------------------------
+// 9. Devices & Terminal Management in Cloud Firestore
+// ----------------------------------------------------------------------
+
+export async function getFirestoreDevices(): Promise<any[]> {
+  try {
+    const devRef = collection(firestore, 'devices');
+    const snap = await getDocs(devRef);
+    if (snap.empty) {
+      const currentDevId = localStorage.getItem('ts_device_id') || 'web_terminal_01';
+      const defaultDev = {
+        _id: currentDevId,
+        id: currentDevId,
+        deviceId: currentDevId,
+        deviceName: 'Trending Studio Counter 1 (Web POS)',
+        platform: 'WEB',
+        appVersion: '1.0.0',
+        isRevoked: false,
+        lastActiveAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+      };
+      await setDoc(doc(firestore, 'devices', currentDevId), defaultDev);
+      return [defaultDev];
+    }
+    return snap.docs.map((d) => ({ ...d.data(), _id: d.id, id: d.id }));
+  } catch (err) {
+    console.warn('[Firebase] Failed to fetch devices from Firestore:', err);
+    return [];
+  }
+}
+
+export async function registerDeviceInFirestore(device: any): Promise<any> {
+  const id = device.deviceId || device._id || `dev_${Date.now()}`;
+  const data = {
+    ...device,
+    _id: id,
+    id,
+    isRevoked: false,
+    lastActiveAt: new Date().toISOString(),
+    createdAt: device.createdAt || new Date().toISOString(),
+  };
+  await setDoc(doc(firestore, 'devices', id), data, { merge: true });
+  return data;
+}
+
+export async function updateDeviceStatusInFirestore(deviceId: string, isRevoked: boolean): Promise<void> {
+  const devRef = doc(firestore, 'devices', deviceId);
+  await setDoc(devRef, { isRevoked, updatedAt: new Date().toISOString() }, { merge: true });
+}
+

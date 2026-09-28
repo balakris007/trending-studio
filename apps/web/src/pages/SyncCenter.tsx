@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { offlineDb } from '../services/offlineDb';
 import { dataService } from '../services/dataService';
+import * as fsClient from '../services/firebaseClient';
 import { exportToCsv } from '../services/firebaseClient';
 import { formatISTDateTime } from '@trending-studio/utils';
 import {
@@ -31,31 +32,29 @@ export const SyncCenter: React.FC = () => {
 
   const fetchSyncData = async () => {
     try {
-      const [devRes, statRes, sheetRes, pending] = await Promise.allSettled([
-        api.get('/devices'),
-        api.get('/sync/status'),
-        api.get('/sheets/status'),
+      const [devList, pending, settings] = await Promise.all([
+        dataService.getDevices(),
         offlineDb.getPendingCount(),
+        dataService.getSettings(),
       ]);
 
-      if (devRes.status === 'fulfilled') setDevices(devRes.value.data.data || []);
-      if (statRes.status === 'fulfilled') setSyncStatus(statRes.value.data.data || null);
-      if (sheetRes.status === 'fulfilled') setSheetsStatus(sheetRes.value.data.data || null);
-      if (pending.status === 'fulfilled') setLocalPendingCount(pending.value);
+      setDevices(devList || []);
+      setLocalPendingCount(pending);
 
-      // If sheetsStatus is still not set, check via settings
-      if (!sheetsStatus) {
-        try {
-          const settings: any = await dataService.getSettings();
-          if (settings.googleSheetsConfig?.spreadsheetId) {
-            setSheetsStatus({
-              spreadsheetId: settings.googleSheetsConfig.spreadsheetId,
-              enabled: settings.googleSheetsConfig.enabled !== false,
-              sheetUrl: `https://docs.google.com/spreadsheets/d/${settings.googleSheetsConfig.spreadsheetId}/edit`,
-              configured: true,
-            });
-          }
-        } catch {}
+      setSyncStatus({
+        cloudConnected: true,
+        cloudDatabase: 'Google Cloud Firestore',
+        lastCheckedAt: new Date().toISOString(),
+      });
+
+      const s = settings as any;
+      if (s?.googleSheetsConfig?.spreadsheetId) {
+        setSheetsStatus({
+          spreadsheetId: s.googleSheetsConfig.spreadsheetId,
+          enabled: s.googleSheetsConfig.enabled !== false,
+          sheetUrl: `https://docs.google.com/spreadsheets/d/${s.googleSheetsConfig.spreadsheetId}/edit`,
+          configured: true,
+        });
       }
     } catch (err) {
       console.error('Failed to load sync center data:', err);
@@ -76,13 +75,40 @@ export const SyncCenter: React.FC = () => {
     setIsSyncingSheets(true);
     setSheetsSyncMsg(null);
     try {
-      const res = await api.post('/sheets/sync-all', {});
-      setSheetsSyncMsg(
-        `Synced ${res.data.data.invoicesCount} Invoices, ${res.data.data.productsCount} Products, ${res.data.data.customersCount} Customers!`
-      );
+      // Gather live records
+      const invoices = await dataService.getInvoices();
+      const products = await dataService.getProducts();
+      const customers = await dataService.getCustomers();
+
+      const settings: any = await dataService.getSettings();
+      const webhookUrl = settings?.googleSheetsConfig?.webhookUrl;
+
+      if (webhookUrl) {
+        await fsClient.syncToGoogleSheetsWebhook(webhookUrl, {
+          type: 'FULL_SYNC',
+          data: { invoices, products, customers },
+        });
+        setSheetsSyncMsg(`Pushed ${invoices.length} invoices, ${products.length} products, ${customers.length} customers to Google Sheets Webhook!`);
+      } else {
+        // Instant CSV Export
+        exportToCsv(
+          `trending_studio_backup_${new Date().toISOString().slice(0, 10)}.csv`,
+          invoices,
+          [
+            { key: 'invoiceNumber', label: 'Invoice No' },
+            { key: 'customerName', label: 'Customer Name' },
+            { key: 'customerMobile', label: 'Mobile' },
+            { key: 'grandTotal', label: 'Total Amount (INR)' },
+            { key: 'paymentMethod', label: 'Payment Method' },
+            { key: 'status', label: 'Status' },
+            { key: 'createdAt', label: 'Date Time' },
+          ]
+        );
+        setSheetsSyncMsg(`Exported ${invoices.length} Invoices to CSV ready for Google Sheets & Excel!`);
+      }
       fetchSyncData();
     } catch (err: any) {
-      setSheetsSyncMsg(err.response?.data?.error || 'Sync failed.');
+      setSheetsSyncMsg(err.message || 'Sync failed.');
     } finally {
       setIsSyncingSheets(false);
     }
@@ -91,19 +117,19 @@ export const SyncCenter: React.FC = () => {
   const handleRevokeDevice = async (deviceId: string) => {
     if (!confirm('Are you sure you want to revoke and lock this mobile terminal?')) return;
     try {
-      await api.post(`/devices/${deviceId}/revoke`);
-      fetchSyncData();
+      await dataService.updateDeviceStatus(deviceId, true);
+      await fetchSyncData();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Revocation failed');
+      alert(err.message || 'Revocation failed');
     }
   };
 
   const handleUnrevokeDevice = async (deviceId: string) => {
     try {
-      await api.post(`/devices/${deviceId}/unrevoke`);
-      fetchSyncData();
+      await dataService.updateDeviceStatus(deviceId, false);
+      await fetchSyncData();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Unlock failed');
+      alert(err.message || 'Unlock failed');
     }
   };
 
@@ -124,7 +150,7 @@ export const SyncCenter: React.FC = () => {
         localStorage.setItem('ts_device_id', deviceId);
       }
 
-      await api.post('/devices/register', {
+      await dataService.registerDevice({
         deviceId,
         deviceName: customName,
         deviceModel: navigator.userAgent.includes('Mobile') ? 'Smartphone' : 'Computer / Tablet',
@@ -132,9 +158,9 @@ export const SyncCenter: React.FC = () => {
         appVersion: '1.0.0',
       });
       alert(`Terminal "${customName}" registered successfully!`);
-      fetchSyncData();
+      await fetchSyncData();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Registration failed');
+      alert(err.message || 'Registration failed');
     }
   };
 

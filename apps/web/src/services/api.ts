@@ -1,5 +1,17 @@
 import axios from 'axios';
 
+export const isStaticHost = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  const host = window.location.hostname;
+  return host.includes('web.app') || host.includes('firebaseapp.com') || host.includes('github.io');
+};
+
+export const hasCustomApiServer = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  const custom = localStorage.getItem('ts_api_url') || import.meta.env.VITE_API_URL;
+  return Boolean(custom && !custom.startsWith('/') && !custom.includes(window.location.hostname));
+};
+
 export const getApiBaseUrl = (): string => {
   return localStorage.getItem('ts_api_url') || import.meta.env.VITE_API_URL || '/api/v1';
 };
@@ -15,9 +27,21 @@ export const api = axios.create({
   },
 });
 
-// Request interceptor to attach JWT token
+// Request interceptor to attach JWT token and short-circuit static host endpoints
 api.interceptors.request.use((config) => {
   config.baseURL = getApiBaseUrl();
+  
+  // If running on static host with no backend server configured, short-circuit relative calls
+  if (isStaticHost() && !hasCustomApiServer() && config.baseURL?.startsWith('/')) {
+    const err: any = new Error('Direct Cloud Mode: Using Cloud Firestore directly without a dedicated backend server.');
+    err.response = {
+      status: 404,
+      statusText: 'Direct Cloud Mode',
+      data: { error: 'Cloud Firestore Direct Mode Active', isStaticHost: true },
+    };
+    return Promise.reject(err);
+  }
+
   if (config.headers) {
     config.headers['Bypass-Tunnel-Reminder'] = 'true';
     const token = localStorage.getItem('ts_access_token');
@@ -33,11 +57,11 @@ api.interceptors.response.use(
   (response) => {
     // If static host returns index.html for an API endpoint
     if (typeof response.data === 'string' && (response.data.includes('<!DOCTYPE html>') || response.data.includes('<html'))) {
-      const err: any = new Error('API route returned HTML instead of JSON');
+      const err: any = new Error('Static host returned HTML instead of JSON API response');
       err.response = {
         status: 404,
         statusText: 'Not Found',
-        data: { error: 'API server route not found on this static host' },
+        data: { error: 'Cloud Firestore Direct Mode Active', isStaticHost: true },
       };
       return Promise.reject(err);
     }

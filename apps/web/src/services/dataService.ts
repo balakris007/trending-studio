@@ -256,4 +256,62 @@ export const dataService = {
       await fsClient.saveSettingsToFirestore(settings);
     }
   },
+
+  // ----------------------------------------------------------------------
+  // Studio Orders
+  // ----------------------------------------------------------------------
+  async getOrders(): Promise<any[]> {
+    try {
+      const res = await api.get('/orders');
+      return res.data.data || [];
+    } catch (apiErr) {
+      return await fsClient.getFirestoreOrders();
+    }
+  },
+
+  async saveOrder(order: any): Promise<any> {
+    try {
+      const res = await api.post('/orders', order);
+      return res.data.data;
+    } catch (apiErr) {
+      return await fsClient.saveOrderToFirestore(order);
+    }
+  },
+
+  async updateOrderStatus(orderId: string, status: string): Promise<void> {
+    try {
+      await api.patch(`/orders/${orderId}/status`, { status });
+    } catch (apiErr) {
+      await fsClient.updateOrderStatusInFirestore(orderId, status);
+    }
+  },
+
+  // ----------------------------------------------------------------------
+  // Device & Terminal Management
+  // ----------------------------------------------------------------------
+  async getDevices(): Promise<any[]> {
+    try {
+      const res = await api.get('/devices');
+      return res.data.data || [];
+    } catch (apiErr) {
+      return await fsClient.getFirestoreDevices();
+    }
+  },
+
+  async registerDevice(device: any): Promise<any> {
+    try {
+      const res = await api.post('/devices/register', device);
+      return res.data.data;
+    } catch (apiErr) {
+      return await fsClient.registerDeviceInFirestore(device);
+    }
+  },
+
+  async updateDeviceStatus(deviceId: string, isRevoked: boolean): Promise<void> {
+    try {
+      await api.post(`/devices/${deviceId}/${isRevoked ? 'revoke' : 'unrevoke'}`);
+    } catch (apiErr) {
+      await fsClient.updateDeviceStatusInFirestore(deviceId, isRevoked);
+    }
+  },
 };

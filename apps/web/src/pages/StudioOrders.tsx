@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { api } from '../services/api';
+import { dataService } from '../services/dataService';
 import { formatINR, formatISTDateTime } from '@trending-studio/utils';
 import {
   KanbanSquare,
@@ -33,8 +33,8 @@ export const StudioOrders: React.FC = () => {
 
   const fetchOrders = async () => {
     try {
-      const res = await api.get('/orders');
-      setOrders(res.data.data || []);
+      const list = await dataService.getOrders();
+      setOrders(list || []);
     } catch (err) {
       console.error('Failed to fetch studio orders:', err);
     } finally {
@@ -48,12 +48,10 @@ export const StudioOrders: React.FC = () => {
 
   const handleAdvanceStage = async (order: IOrder, nextStage: OrderStatus) => {
     try {
-      await api.patch(`/orders/${order._id || order.id}/status`, {
-        status: nextStage,
-      });
-      fetchOrders();
+      await dataService.updateOrderStatus(order._id || order.id || '', nextStage);
+      await fetchOrders();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to update order status');
+      alert(err.message || 'Failed to update order status');
     }
   };
 

@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { IUser, IBranch, Role, Permission } from '@trending-studio/shared-types';
 import { api } from '../services/api';
 import { offlineDb } from '../services/offlineDb';
+import { dataService } from '../services/dataService';
 
 import {
   loginWithFirestore,
@@ -66,7 +67,7 @@ const getDeviceInfo = () => {
 export const registerCurrentDevice = async () => {
   try {
     const { deviceId, deviceName, deviceModel, platform } = getDeviceInfo();
-    await api.post('/devices/register', {
+    await dataService.registerDevice({
       deviceId,
       deviceName,
       deviceModel,
@@ -94,12 +95,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const savedBranch = localStorage.getItem('ts_branch');
 
       if (token && isSessionActive) {
-        if (token.startsWith('ts_offline_') && savedUser) {
+        if ((token.startsWith('ts_offline_') || token.startsWith('fs_token_')) && savedUser) {
           try {
             setUser(JSON.parse(savedUser));
             if (savedBranch) setBranch(JSON.parse(savedBranch));
-            setIsOfflineMode(true);
+            setIsOfflineMode(token.startsWith('ts_offline_'));
             setIsLoading(false);
+            registerCurrentDevice();
             return;
           } catch {}
         }
@@ -167,30 +169,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const login = async (identifier: string, password: string) => {
-    // 1. Try backend API first (if user is running a live API server)
-    try {
-      const res = await api.post('/auth/login', {
-        identifier,
-        password,
-        platform: 'WEB',
-      });
+    // 1. If user configured a custom API server, try it
+    const customApiUrl = localStorage.getItem('ts_api_url');
+    if (customApiUrl) {
+      try {
+        const res = await api.post('/auth/login', {
+          identifier,
+          password,
+          platform: 'WEB',
+        });
 
-      const { user: loggedInUser, branch: userBranch, tokens } = res.data.data;
-      sessionStorage.setItem('ts_session_authenticated', 'true');
-      localStorage.setItem('ts_access_token', tokens.accessToken);
-      localStorage.setItem('ts_refresh_token', tokens.refreshToken);
-      localStorage.setItem('ts_user', JSON.stringify(loggedInUser));
-      if (userBranch) localStorage.setItem('ts_branch', JSON.stringify(userBranch));
-      setUser(loggedInUser);
-      setBranch(userBranch);
-      setIsOfflineMode(false);
-      registerCurrentDevice();
-      return;
-    } catch (apiErr: any) {
-      console.log('[Auth] API server unreachable or failed. Attempting direct Cloud Firestore login...');
+        const { user: loggedInUser, branch: userBranch, tokens } = res.data.data;
+        sessionStorage.setItem('ts_session_authenticated', 'true');
+        localStorage.setItem('ts_access_token', tokens.accessToken);
+        localStorage.setItem('ts_refresh_token', tokens.refreshToken);
+        localStorage.setItem('ts_user', JSON.stringify(loggedInUser));
+        if (userBranch) localStorage.setItem('ts_branch', JSON.stringify(userBranch));
+        setUser(loggedInUser);
+        setBranch(userBranch);
+        setIsOfflineMode(false);
+        registerCurrentDevice();
+        return;
+      } catch (apiErr: any) {
+        console.log('[Auth] Custom API server login failed, checking Cloud Firestore...');
+      }
     }
 
-    // 2. Direct Cloud Firestore authentication (Primary for Firebase Hosting & GitHub Pages)
+    // 2. Direct Cloud Firestore authentication (Standard for Firebase Hosting & GitHub Pages)
     try {
       const { user: fsUser, branch: fsBranch, tokens } = await loginWithFirestore(identifier, password);
       sessionStorage.setItem('ts_session_authenticated', 'true');
@@ -254,13 +259,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const registerUser = async (userData: { name: string; email: string; phone: string; password: string; role?: Role }): Promise<IUser> => {
-    try {
-      const res = await api.post('/auth/register', userData);
-      return res.data.data.user;
-    } catch (apiErr) {
-      // Direct Cloud Firestore user registration
-      return await registerUserInFirestore(userData);
+    const customApiUrl = localStorage.getItem('ts_api_url');
+    if (customApiUrl) {
+      try {
+        const res = await api.post('/auth/register', userData);
+        return res.data.data.user;
+      } catch (apiErr) {
+        console.log('[Auth] API register failed. Storing directly in Cloud Firestore...');
+      }
     }
+    return await registerUserInFirestore(userData);
   };
 
   const logout = async () => {
