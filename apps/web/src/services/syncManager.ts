@@ -1,10 +1,7 @@
-/**
- * TRENDING STUDIO — CLIENT OFFLINE SYNC MANAGER
- * Seamlessly manages synchronization between IndexedDB and Firebase via API.
- */
-
 import { api } from './api';
 import { offlineDb } from './offlineDb';
+import { dataService } from './dataService';
+import * as fsClient from './firebaseClient';
 
 class SyncManager {
   private isSyncing = false;
@@ -46,52 +43,98 @@ class SyncManager {
       let syncedCount = 0;
 
       if (pendingItems.length > 0) {
-        console.log(`[SyncManager] Pushing ${pendingItems.length} offline operations to server...`);
+        console.log(`[SyncManager] Pushing ${pendingItems.length} offline operations...`);
 
-        const pushPayload = {
-          deviceId: localStorage.getItem('ts_device_id') || 'web_terminal_01',
-          operations: pendingItems.map((item) => ({
-            operationId: item.operationId,
-            localId: item.payload._id || item.operationId,
-            entity: item.entity,
-            operationType: item.operationType,
-            payload: item.payload,
-            version: 1,
-            timestamp: item.createdAt,
-          })),
-        };
+        const customApiUrl = localStorage.getItem('ts_api_url');
+        let pushedViaApi = false;
 
-        const pushRes = await api.post('/sync/push', pushPayload);
-        const results = pushRes.data.results || [];
+        // Option A: If a custom dedicated API server is configured, try it first
+        if (customApiUrl) {
+          try {
+            const pushPayload = {
+              deviceId: localStorage.getItem('ts_device_id') || 'web_terminal_01',
+              operations: pendingItems.map((item) => ({
+                operationId: item.operationId,
+                localId: item.payload._id || item.operationId,
+                entity: item.entity,
+                operationType: item.operationType,
+                payload: item.payload,
+                version: 1,
+                timestamp: item.createdAt,
+              })),
+            };
 
-        for (const res of results) {
-          if (res.status === 'APPLIED' || res.status === 'DUPLICATE_SKIPPED') {
-            await offlineDb.markQueueItemSynced(
-              res.operationId,
-              res.serverId,
-              res.assignedInvoiceNumber
-            );
-            syncedCount++;
+            const pushRes = await api.post('/sync/push', pushPayload);
+            const results = pushRes.data.results || [];
+
+            for (const res of results) {
+              if (res.status === 'APPLIED' || res.status === 'DUPLICATE_SKIPPED') {
+                await offlineDb.markQueueItemSynced(
+                  res.operationId,
+                  res.serverId,
+                  res.assignedInvoiceNumber
+                );
+                syncedCount++;
+              }
+            }
+            pushedViaApi = true;
+          } catch (apiErr) {
+            console.warn('[SyncManager] Custom API sync failed, falling back to direct Cloud Firestore...');
+          }
+        }
+
+        // Option B: Direct Cloud Firestore upload (Default for Firebase Hosting & static deployment)
+        if (!pushedViaApi) {
+          for (const item of pendingItems) {
+            try {
+              if (item.entity === 'invoice') {
+                const saved = await fsClient.saveInvoiceToFirestore(item.payload);
+                await offlineDb.markQueueItemSynced(
+                  item.operationId,
+                  saved._id || item.payload._id,
+                  saved.invoiceNumber || item.payload.invoiceNumber
+                );
+                syncedCount++;
+
+                // Optional: Auto-append to Google Sheets Webhook if configured
+                try {
+                  const settings: any = await dataService.getSettings();
+                  if (settings?.googleSheetsConfig?.webhookUrl && settings.googleSheetsConfig.enabled !== false) {
+                    await fsClient.syncToGoogleSheetsWebhook(settings.googleSheetsConfig.webhookUrl, {
+                      type: 'INVOICE',
+                      data: saved,
+                    });
+                  }
+                } catch (sheetErr) {
+                  console.warn('[SyncManager] Auto-sheet push skipped:', sheetErr);
+                }
+              } else if (item.entity === 'customer') {
+                const saved = await fsClient.saveCustomerToFirestore(item.payload);
+                await offlineDb.markQueueItemSynced(
+                  item.operationId,
+                  saved._id || item.payload._id
+                );
+                syncedCount++;
+              }
+            } catch (fsErr) {
+              console.error(`[SyncManager] Failed to sync item ${item.operationId}:`, fsErr);
+            }
           }
         }
       }
 
-      // 2. Pull latest catalog updates from server and cache locally
+      // 2. Pull latest catalog updates from Cloud Firestore and cache locally
       try {
-        const [prodRes, custRes, priceRes] = await Promise.all([
-          api.get('/products?limit=200'),
-          api.get('/customers?limit=100'),
-          api.get('/photo-prints/pricing'),
+        const [products, customers] = await Promise.all([
+          dataService.getProducts(),
+          dataService.getCustomers(),
         ]);
 
-        if (prodRes.data?.data?.products) {
-          await offlineDb.cacheProducts(prodRes.data.data.products);
+        if (products && products.length > 0) {
+          await offlineDb.cacheProducts(products);
         }
-        if (custRes.data?.data) {
-          await offlineDb.cacheCustomers(custRes.data.data);
-        }
-        if (priceRes.data?.data) {
-          await offlineDb.cachePhotoPrices(priceRes.data.data);
+        if (customers && customers.length > 0) {
+          await offlineDb.cacheCustomers(customers);
         }
       } catch (err) {
         // Non-critical cache refresh failure

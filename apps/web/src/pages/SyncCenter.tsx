@@ -5,6 +5,7 @@ import { dataService } from '../services/dataService';
 import * as fsClient from '../services/firebaseClient';
 import { exportToCsv } from '../services/firebaseClient';
 import { formatISTDateTime } from '@trending-studio/utils';
+import { syncManager } from '../services/syncManager';
 import {
   RefreshCw,
   Smartphone,
@@ -18,6 +19,8 @@ import {
   HardDrive,
   ExternalLink,
   Download,
+  Upload,
+  Check,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -28,6 +31,8 @@ export const SyncCenter: React.FC = () => {
   const [localPendingCount, setLocalPendingCount] = useState<number>(0);
   const [isSyncingSheets, setIsSyncingSheets] = useState(false);
   const [sheetsSyncMsg, setSheetsSyncMsg] = useState<string | null>(null);
+  const [isSyncingPending, setIsSyncingPending] = useState(false);
+  const [uploadPendingMsg, setUploadPendingMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchSyncData = async () => {
@@ -111,6 +116,24 @@ export const SyncCenter: React.FC = () => {
       setSheetsSyncMsg(err.message || 'Sync failed.');
     } finally {
       setIsSyncingSheets(false);
+    }
+  };
+
+  const handleUploadPendingToCloud = async () => {
+    setIsSyncingPending(true);
+    setUploadPendingMsg(null);
+    try {
+      const res = await syncManager.syncNow();
+      if (res.success) {
+        setUploadPendingMsg(`Uploaded ${res.syncedCount} records to Cloud Firestore successfully!`);
+      } else {
+        setUploadPendingMsg(res.error || 'Failed to upload pending records.');
+      }
+      await fetchSyncData();
+    } catch (err: any) {
+      setUploadPendingMsg(err.message || 'Upload failed.');
+    } finally {
+      setIsSyncingPending(false);
     }
   };
 
@@ -240,9 +263,24 @@ export const SyncCenter: React.FC = () => {
             <p className="text-[11px] text-slate-300">
               Zero-latency terminal storage. Allows POS billing even with internet down, auto-syncing upon reconnection.
             </p>
+            {uploadPendingMsg && (
+              <p className="text-[10px] text-indigo-400 font-bold bg-indigo-500/10 p-1.5 rounded-lg">
+                {uploadPendingMsg}
+              </p>
+            )}
           </div>
-          <div className="mt-3 pt-3 border-t border-slate-800 text-[10px] text-slate-400 font-mono">
-            <span>Pending Offline Bills: {localPendingCount}</span>
+          <div className="mt-3 pt-3 border-t border-slate-800 flex items-center justify-between text-xs">
+            <span className="text-[10px] text-slate-400 font-mono">
+              Pending: {localPendingCount}
+            </span>
+            <button
+              onClick={handleUploadPendingToCloud}
+              disabled={isSyncingPending}
+              className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[11px] font-bold flex items-center space-x-1 shadow-sm disabled:opacity-50"
+            >
+              <Upload className={`w-3 h-3 ${isSyncingPending ? 'animate-bounce' : ''}`} />
+              <span>{isSyncingPending ? 'Uploading...' : localPendingCount > 0 ? `Upload (${localPendingCount})` : 'Sync DB'}</span>
+            </button>
           </div>
         </div>
 
