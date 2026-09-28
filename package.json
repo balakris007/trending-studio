@@ -1,0 +1,28 @@
+{
+  "name": "trending-studio-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build:packages": "npm run build --workspace=@trending-studio/shared-types --workspace=@trending-studio/utils --workspace=@trending-studio/validation --workspace=@trending-studio/gst-engine --workspace=@trending-studio/pricing-engine --workspace=@trending-studio/billing-engine --workspace=@trending-studio/sync-engine",
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "dev:api": "npm run dev --workspace=trending-studio-api",
+    "dev:web": "npm run dev --workspace=trending-studio-web",
+    "dev:android": "npm run start --workspace=trending-studio-android",
+    "type-check": "npm run type-check --workspaces --if-present",
+    "build:web": "npm run build --workspace=trending-studio-web",
+    "deploy:hosting": "npm run build:web && npx firebase-tools deploy --only hosting",
+    "seed": "npm run seed --workspace=trending-studio-api",
+    "sync:firebase": "tsx scripts/seed-live-firebase.ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  }
+}

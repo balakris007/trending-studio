@@ -1,0 +1,18 @@
+{
+  "name": "Trending Studio POS",
+  "short_name": "Trending POS",
+  "description": "Trending Studio Gifts & Frames Mobile POS & Billing System",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#2563eb",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
