@@ -276,6 +276,128 @@ class OfflineDatabase {
       console.error('[OfflineDB] Error marking synced:', err);
     }
   }
+
+  public async seedDemoDataIfEmpty(): Promise<void> {
+    try {
+      const existing = await this.getCachedProducts();
+      if (existing.length > 0) return;
+
+      const demoProducts = [
+        {
+          _id: 'prod_frame_1218',
+          name: '12x18 Synthetic Wooden Frame',
+          category: 'FRAMES',
+          sku: 'TS-FR-1218',
+          barcode: '8901001',
+          sellingPrice: 450,
+          purchasePrice: 220,
+          mrp: 550,
+          gstRate: 18,
+          hsnCode: '4414',
+          stockQuantity: 45,
+          unit: 'PCS',
+        },
+        {
+          _id: 'prod_mug_custom',
+          name: 'Customized Ceramic Photo Mug',
+          category: 'GIFTS',
+          sku: 'TS-MUG-001',
+          barcode: '8901002',
+          sellingPrice: 250,
+          purchasePrice: 90,
+          mrp: 350,
+          gstRate: 12,
+          hsnCode: '6912',
+          stockQuantity: 80,
+          unit: 'PCS',
+        },
+        {
+          _id: 'prod_acrylic_3d',
+          name: 'Acrylic 3D LED Cutout (8x10)',
+          category: 'GIFTS',
+          sku: 'TS-ACR-810',
+          barcode: '8901003',
+          sellingPrice: 850,
+          purchasePrice: 380,
+          mrp: 1100,
+          gstRate: 18,
+          hsnCode: '3926',
+          stockQuantity: 25,
+          unit: 'PCS',
+        },
+        {
+          _id: 'prod_magic_mirror',
+          name: 'Magic Mirror Photo Frame with LED',
+          category: 'GIFTS',
+          sku: 'TS-MM-001',
+          barcode: '8901004',
+          sellingPrice: 650,
+          purchasePrice: 280,
+          mrp: 899,
+          gstRate: 18,
+          hsnCode: '7009',
+          stockQuantity: 30,
+          unit: 'PCS',
+        },
+        {
+          _id: 'prod_tshirt_custom',
+          name: 'Personalized Cotton T-Shirt',
+          category: 'GIFTS',
+          sku: 'TS-TSHIRT-01',
+          barcode: '8901005',
+          sellingPrice: 399,
+          purchasePrice: 150,
+          mrp: 599,
+          gstRate: 5,
+          hsnCode: '6109',
+          stockQuantity: 60,
+          unit: 'PCS',
+        },
+        {
+          _id: 'prod_print_46',
+          name: '4x6 Instant Glossy Photo Print',
+          category: 'PHOTO_PRINTS',
+          sku: 'TS-PR-4X6',
+          barcode: '8901006',
+          sellingPrice: 20,
+          purchasePrice: 5,
+          mrp: 25,
+          gstRate: 18,
+          hsnCode: '4911',
+          stockQuantity: 500,
+          unit: 'PCS',
+        },
+      ];
+
+      const demoCustomers = [
+        {
+          _id: 'cust_retail_walkin',
+          name: 'Walk-in Retail Customer',
+          mobile: '9999999999',
+          email: 'retail@trendingstudio.com',
+          city: 'Karaikudi',
+          pincode: '630001',
+          totalSpent: 0,
+          pendingBalance: 0,
+        },
+        {
+          _id: 'cust_muthu',
+          name: 'Muthu Kumar',
+          mobile: '9842123456',
+          email: 'muthu@gmail.com',
+          city: 'Karaikudi',
+          pincode: '630001',
+          totalSpent: 4500,
+          pendingBalance: 0,
+        },
+      ];
+
+      await this.cacheProducts(demoProducts);
+      await this.cacheCustomers(demoCustomers);
+    } catch (err) {
+      console.warn('[OfflineDB] Demo seeding skipped:', err);
+    }
+  }
 }
 
 export const offlineDb = new OfflineDatabase();
