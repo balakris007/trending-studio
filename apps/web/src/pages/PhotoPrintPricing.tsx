@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
+import { dataService } from '../services/dataService';
 import { formatINR } from '@trending-studio/utils';
 import { Image as ImageIcon, Edit3, Check, X, Sparkles } from 'lucide-react';
 import { IPhotoPrintSizePrice } from '@trending-studio/shared-types';
@@ -12,8 +13,8 @@ export const PhotoPrintPricing: React.FC = () => {
 
   const fetchPricing = async () => {
     try {
-      const res = await api.get('/photo-prints/pricing');
-      setPrices(res.data.data || []);
+      const data = await dataService.getPhotoPrintPrices();
+      setPrices(data || []);
     } catch (err) {
       console.error('Failed to load print pricing:', err);
     } finally {
@@ -27,15 +28,11 @@ export const PhotoPrintPricing: React.FC = () => {
 
   const handleSavePrice = async (size: string) => {
     try {
-      await api.put('/photo-prints/pricing', {
-        size,
-        basePrice: editPrice,
-        isActive: true,
-      });
+      await dataService.savePhotoPrintPrice(size, editPrice);
       setEditingSize(null);
       fetchPricing();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to update rate');
+      alert(err.message || 'Failed to update rate');
     }
   };
 

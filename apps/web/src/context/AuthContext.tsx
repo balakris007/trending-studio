@@ -3,6 +3,8 @@ import { IUser, IBranch, Role, Permission } from '@trending-studio/shared-types'
 import { api } from '../services/api';
 import { offlineDb } from '../services/offlineDb';
 
+import { loginWithFirestore, registerUserInFirestore } from '../services/firebaseClient';
+
 interface AuthContextType {
   user: IUser | null;
   branch: IBranch | null;
@@ -10,6 +12,7 @@ interface AuthContextType {
   isLoading: boolean;
   isOfflineMode: boolean;
   login: (identifier: string, password: string) => Promise<void>;
+  registerUser: (userData: { name: string; email: string; phone: string; password: string; role?: Role }) => Promise<IUser>;
   loginOffline: (role?: 'admin' | 'billing') => Promise<void>;
   logout: () => Promise<void>;
   hasRole: (...roles: Role[]) => boolean;
@@ -147,6 +150,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const login = async (identifier: string, password: string) => {
+    // 1. Try backend API first (if user is running a live API server)
     try {
       const res = await api.post('/auth/login', {
         identifier,
@@ -163,21 +167,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setBranch(userBranch);
       setIsOfflineMode(false);
       registerCurrentDevice();
-    } catch (err: any) {
-      // Check if backend API is unreachable (404 on GitHub Pages or Network Error)
-      const isApiMissing = !err.response || err.response?.status === 404 || err.code === 'ERR_NETWORK';
-      if (isApiMissing) {
-        const isAdmin = identifier === 'admin@trendingstudio.com' && password === 'adminpassword123';
-        const isBilling = identifier === 'billing@trendingstudio.com' && password === 'billingpassword123';
-        if (isAdmin) {
-          await loginOffline('admin');
-          return;
-        } else if (isBilling) {
-          await loginOffline('billing');
-          return;
-        }
+      return;
+    } catch (apiErr: any) {
+      console.log('[Auth] API server unreachable or failed. Attempting direct Cloud Firestore login...');
+    }
+
+    // 2. Direct Cloud Firestore authentication (Primary for Firebase Hosting & GitHub Pages)
+    try {
+      const { user: fsUser, branch: fsBranch, tokens } = await loginWithFirestore(identifier, password);
+      localStorage.setItem('ts_access_token', tokens.accessToken);
+      localStorage.setItem('ts_refresh_token', tokens.refreshToken);
+      localStorage.setItem('ts_user', JSON.stringify(fsUser));
+      localStorage.setItem('ts_branch', JSON.stringify(fsBranch));
+      setUser(fsUser);
+      setBranch(fsBranch);
+      setIsOfflineMode(false);
+      return;
+    } catch (fsErr: any) {
+      // 3. Fallback to demo offline mode if demo credentials match
+      const isAdmin = identifier === 'admin@trendingstudio.com' && password === 'adminpassword123';
+      const isBilling = identifier === 'billing@trendingstudio.com' && password === 'billingpassword123';
+      if (isAdmin) {
+        await loginOffline('admin');
+        return;
+      } else if (isBilling) {
+        await loginOffline('billing');
+        return;
       }
-      throw err;
+      throw fsErr;
+    }
+  };
+
+  const registerUser = async (userData: { name: string; email: string; phone: string; password: string; role?: Role }): Promise<IUser> => {
+    try {
+      const res = await api.post('/auth/register', userData);
+      return res.data.data.user;
+    } catch (apiErr) {
+      // Direct Cloud Firestore user registration
+      return await registerUserInFirestore(userData);
     }
   };
 
@@ -216,6 +243,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isLoading,
         isOfflineMode,
         login,
+        registerUser,
         loginOffline,
         logout,
         hasRole,

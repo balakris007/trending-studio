@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
+import { dataService } from '../services/dataService';
 import { formatINR } from '@trending-studio/utils';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -49,7 +50,49 @@ export const Dashboard: React.FC = () => {
         setSummary(sumRes.data.data);
         setRecentInvoices(invRes.data.data || []);
       } catch (err) {
-        console.error('Failed to load dashboard metrics:', err);
+        // Fallback: calculate from Cloud Firestore dataService
+        try {
+          const [invoices, products] = await Promise.all([
+            dataService.getInvoices(),
+            dataService.getProducts(),
+          ]);
+
+          let totalSales = 0;
+          let totalTax = 0;
+          let cash = 0;
+          let upi = 0;
+
+          invoices.forEach((inv) => {
+            const amount = inv.totalAmount || inv.grandTotal || 0;
+            totalSales += amount;
+            totalTax += inv.taxAmount || 0;
+            if (Array.isArray(inv.payments)) {
+              inv.payments.forEach((p: any) => {
+                if (p.method === 'CASH') cash += p.amount || 0;
+                else if (p.method === 'UPI') upi += p.amount || 0;
+              });
+            } else {
+              cash += amount;
+            }
+          });
+
+          const lowStock = products.filter((p) => p.stock <= (p.minStock || 5));
+
+          setSummary({
+            todaySales: totalSales,
+            todayTax: totalTax,
+            todayInvoicesCount: invoices.length,
+            todayOrdersCount: invoices.length,
+            cashCollected: cash,
+            upiCollected: upi,
+            cardCollected: 0,
+            lowStockCount: lowStock.length,
+            lowStockProducts: lowStock,
+          });
+          setRecentInvoices(invoices.slice(0, 5));
+        } catch (calcErr) {
+          console.error('Failed to load dashboard metrics:', calcErr);
+        }
       } finally {
         setLoading(false);
       }

@@ -26,6 +26,7 @@ yarn-debug.log*
 yarn-error.log*
 .expo/
 .turbo/
+.firebase/
 .DS_Store
 Thumbs.db
 

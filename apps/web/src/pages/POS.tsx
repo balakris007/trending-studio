@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { offlineDb } from '../services/offlineDb';
 import { syncManager } from '../services/syncManager';
+import { dataService } from '../services/dataService';
 import {
   calculateInvoice,
   validateInvoiceReconciliation,
@@ -99,30 +100,24 @@ export const POS: React.FC = () => {
         }
       } catch {}
 
-      // 2. Fetch fresh catalog from API if online
-      if (navigator.onLine) {
-        try {
-          const [prodRes, custRes] = await Promise.all([
-            api.get('/products?limit=200'),
-            api.get('/customers?limit=100'),
-          ]);
-          const freshProds = prodRes.data.data?.products || prodRes.data.data || [];
-          const freshCusts = custRes.data.data?.customers || custRes.data.data || [];
+      // 2. Fetch fresh catalog from API or Cloud Firestore
+      try {
+        const [freshProds, freshCusts] = await Promise.all([
+          dataService.getProducts(),
+          dataService.getCustomers(),
+        ]);
 
-          if (freshProds.length > 0) {
-            setProducts(freshProds);
-            await offlineDb.cacheProducts(freshProds);
-          }
-          if (freshCusts.length > 0) {
-            setCustomers(freshCusts);
-            if (!selectedCustomer) {
-              setSelectedCustomer(freshCusts[0]);
-            }
-            await offlineDb.cacheCustomers(freshCusts);
-          }
-        } catch (err) {
-          console.warn('[POS] Running in offline catalog mode.');
+        if (freshProds.length > 0) {
+          setProducts(freshProds);
         }
+        if (freshCusts.length > 0) {
+          setCustomers(freshCusts);
+          if (!selectedCustomer) {
+            setSelectedCustomer(freshCusts[0]);
+          }
+        }
+      } catch (err) {
+        console.warn('[POS] Catalog loading fallback error:', err);
       }
     };
     fetchData();
@@ -266,19 +261,19 @@ export const POS: React.FC = () => {
     if (!newCustomerName || !newCustomerMobile) return;
 
     try {
-      const res = await api.post('/customers', {
+      const created = await dataService.saveCustomer({
         name: newCustomerName,
         mobile: newCustomerMobile,
         city: 'Karaikudi',
         state: 'Tamil Nadu',
       });
-      setSelectedCustomer(res.data.data);
-      setCustomers([res.data.data, ...customers]);
+      setSelectedCustomer(created);
+      setCustomers([created, ...customers]);
       setShowAddCustomerModal(false);
       setNewCustomerName('');
       setNewCustomerMobile('');
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to create customer');
+      alert(err.message || 'Failed to create customer');
     }
   };
 
@@ -341,36 +336,13 @@ export const POS: React.FC = () => {
         payments,
       };
 
-      let finalInvoice: any;
+      const calc = calculateInvoice({
+        items: cartItems,
+        overallDiscount,
+        payments,
+      });
 
-      if (navigator.onLine) {
-        try {
-          const res = await api.post('/invoices', invoicePayload);
-          finalInvoice = res.data.data;
-        } catch (apiErr: any) {
-          console.warn('[POS] API invoice post failed, saving locally in offline queue:', apiErr.message);
-          const calc = calculateInvoice({
-            items: cartItems,
-            overallDiscount,
-            payments,
-          });
-          finalInvoice = await offlineDb.saveOfflineInvoice({
-            ...invoicePayload,
-            ...calc,
-          });
-        }
-      } else {
-        // Direct offline bill generation
-        const calc = calculateInvoice({
-          items: cartItems,
-          overallDiscount,
-          payments,
-        });
-        finalInvoice = await offlineDb.saveOfflineInvoice({
-          ...invoicePayload,
-          ...calc,
-        });
-      }
+      const finalInvoice = await dataService.saveInvoice(invoicePayload, calc);
 
       setCompletedInvoice(finalInvoice);
       setShowPaymentModal(false);

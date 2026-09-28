@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { offlineDb } from '../services/offlineDb';
+import { dataService } from '../services/dataService';
+import { exportToCsv } from '../services/firebaseClient';
 import { formatISTDateTime } from '@trending-studio/utils';
 import {
   RefreshCw,
@@ -14,6 +16,7 @@ import {
   Table,
   HardDrive,
   ExternalLink,
+  Download,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -28,16 +31,32 @@ export const SyncCenter: React.FC = () => {
 
   const fetchSyncData = async () => {
     try {
-      const [devRes, statRes, sheetRes, pending] = await Promise.all([
+      const [devRes, statRes, sheetRes, pending] = await Promise.allSettled([
         api.get('/devices'),
         api.get('/sync/status'),
         api.get('/sheets/status'),
         offlineDb.getPendingCount(),
       ]);
-      setDevices(devRes.data.data || []);
-      setSyncStatus(statRes.data.data || null);
-      setSheetsStatus(sheetRes.data.data || null);
-      setLocalPendingCount(pending);
+
+      if (devRes.status === 'fulfilled') setDevices(devRes.value.data.data || []);
+      if (statRes.status === 'fulfilled') setSyncStatus(statRes.value.data.data || null);
+      if (sheetRes.status === 'fulfilled') setSheetsStatus(sheetRes.value.data.data || null);
+      if (pending.status === 'fulfilled') setLocalPendingCount(pending.value);
+
+      // If sheetsStatus is still not set, check via settings
+      if (!sheetsStatus) {
+        try {
+          const settings: any = await dataService.getSettings();
+          if (settings.googleSheetsConfig?.spreadsheetId) {
+            setSheetsStatus({
+              spreadsheetId: settings.googleSheetsConfig.spreadsheetId,
+              enabled: settings.googleSheetsConfig.enabled !== false,
+              sheetUrl: `https://docs.google.com/spreadsheets/d/${settings.googleSheetsConfig.spreadsheetId}/edit`,
+              configured: true,
+            });
+          }
+        } catch {}
+      }
     } catch (err) {
       console.error('Failed to load sync center data:', err);
     } finally {
@@ -262,6 +281,93 @@ export const SyncCenter: React.FC = () => {
               </Link>
             )}
           </div>
+        </div>
+      </div>
+
+      {/* QUICK GOOGLE SHEETS / EXCEL EXPORT PANEL */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h3 className="text-xs font-bold text-white flex items-center space-x-2">
+            <Table className="w-4 h-4 text-emerald-400" />
+            <span>Instant Google Sheets Export</span>
+          </h3>
+          <p className="text-[11px] text-slate-400">
+            Download your live Cloud Firestore records into spreadsheets directly from the browser
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={async () => {
+              const invs = await dataService.getInvoices();
+              if (invs.length === 0) return alert('No invoices to export.');
+              exportToCsv(
+                `trending_studio_invoices_${new Date().toISOString().slice(0, 10)}.csv`,
+                invs.map((i) => ({
+                  ...i,
+                  total: i.totalAmount || i.grandTotal || 0,
+                  dateFormatted: formatISTDateTime(i.createdAt),
+                })),
+                [
+                  { key: 'invoiceNumber', label: 'Invoice No' },
+                  { key: 'customerName', label: 'Customer' },
+                  { key: 'customerMobile', label: 'Mobile' },
+                  { key: 'dateFormatted', label: 'Date' },
+                  { key: 'total', label: 'Total (INR)' },
+                  { key: 'status', label: 'Status' },
+                ]
+              );
+            }}
+            className="px-3 py-1.5 bg-emerald-600/90 hover:bg-emerald-600 text-white rounded-xl text-xs font-semibold flex items-center space-x-1.5 shadow-sm"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Invoices CSV</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={async () => {
+              const prods = await dataService.getProducts();
+              if (prods.length === 0) return alert('No products to export.');
+              exportToCsv(
+                `trending_studio_products_${new Date().toISOString().slice(0, 10)}.csv`,
+                prods,
+                [
+                  { key: 'sku', label: 'SKU' },
+                  { key: 'name', label: 'Product Name' },
+                  { key: 'category', label: 'Category' },
+                  { key: 'sellingPrice', label: 'Price' },
+                  { key: 'stock', label: 'Stock' },
+                ]
+              );
+            }}
+            className="px-3 py-1.5 bg-blue-600/90 hover:bg-blue-600 text-white rounded-xl text-xs font-semibold flex items-center space-x-1.5 shadow-sm"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Products CSV</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={async () => {
+              const custs = await dataService.getCustomers();
+              if (custs.length === 0) return alert('No customers to export.');
+              exportToCsv(
+                `trending_studio_customers_${new Date().toISOString().slice(0, 10)}.csv`,
+                custs,
+                [
+                  { key: 'name', label: 'Customer' },
+                  { key: 'mobile', label: 'Mobile' },
+                  { key: 'city', label: 'City' },
+                  { key: 'totalSpent', label: 'Total Spent' },
+                ]
+              );
+            }}
+            className="px-3 py-1.5 bg-purple-600/90 hover:bg-purple-600 text-white rounded-xl text-xs font-semibold flex items-center space-x-1.5 shadow-sm"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Customers CSV</span>
+          </button>
         </div>
       </div>
 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
+import { dataService } from '../services/dataService';
 import { formatINR, formatISTDateTime } from '@trending-studio/utils';
 import { Search, UserPlus, Users, Eye, Phone, MapPin, X, BookOpen } from 'lucide-react';
 import { ICustomer } from '@trending-studio/shared-types';
@@ -25,8 +26,8 @@ export const Customers: React.FC = () => {
 
   const fetchCustomers = async () => {
     try {
-      const res = await api.get(`/customers?search=${encodeURIComponent(search)}`);
-      setCustomers(res.data.data || []);
+      const custs = await dataService.getCustomers(search);
+      setCustomers(custs || []);
     } catch (err) {
       console.error('Failed to load customers:', err);
     } finally {
@@ -41,8 +42,8 @@ export const Customers: React.FC = () => {
   const handleOpenLedger = async (cust: ICustomer) => {
     setSelectedCustomer(cust);
     try {
-      const res = await api.get(`/customers/${cust._id || cust.id}/ledger`);
-      setLedger(res.data.data || []);
+      const records = await dataService.getCustomerLedger(cust._id || cust.id);
+      setLedger(records || []);
       setShowLedgerModal(true);
     } catch (err) {
       alert('Failed to load customer ledger.');
@@ -52,7 +53,7 @@ export const Customers: React.FC = () => {
   const handleCreateCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await api.post('/customers', formData);
+      await dataService.saveCustomer(formData);
       setShowAddModal(false);
       setFormData({
         name: '',
@@ -64,7 +65,7 @@ export const Customers: React.FC = () => {
       });
       fetchCustomers();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to create customer.');
+      alert(err.message || 'Failed to create customer.');
     }
   };
 

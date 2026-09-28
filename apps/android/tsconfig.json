@@ -2,7 +2,10 @@
   "compilerOptions": {
     "target": "ESNext",
     "module": "ESNext",
-    "lib": ["DOM", "ESNext"],
+    "lib": [
+      "DOM",
+      "ESNext"
+    ],
     "jsx": "react-jsx",
     "moduleResolution": "bundler",
     "allowJs": true,
@@ -13,13 +16,14 @@
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "paths": {
-      "@trending-studio/*": ["../../packages/*/src"]
+      "@trending-studio/*": [
+        "../../packages/*/src"
+      ]
     }
   },
   "include": [
     "**/*.ts",
-    "**/*.tsx",
-    ".expo/types/**/*.ts",
-    "expo-env.d.ts"
-  ]
+    "**/*.tsx"
+  ],
+  "extends": "expo/tsconfig.base"
 }

@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
+import { dataService } from '../services/dataService';
+import { exportToCsv } from '../services/firebaseClient';
 import { formatINR, formatISTDateTime } from '@trending-studio/utils';
-import { Search, Printer, Share2, Eye, Ban, X, FileText } from 'lucide-react';
+import { Search, Printer, Share2, Eye, Ban, X, FileText, Download, Table } from 'lucide-react';
 
 export const Invoices: React.FC = () => {
   const [invoices, setInvoices] = useState<any[]>([]);
@@ -13,10 +15,8 @@ export const Invoices: React.FC = () => {
 
   const fetchInvoices = async () => {
     try {
-      const res = await api.get(
-        `/invoices?search=${encodeURIComponent(search)}&status=${statusFilter}`
-      );
-      setInvoices(res.data.data || []);
+      const data = await dataService.getInvoices(search, statusFilter);
+      setInvoices(data || []);
     } catch (err) {
       console.error('Failed to fetch invoices:', err);
     } finally {
@@ -33,11 +33,36 @@ export const Invoices: React.FC = () => {
     if (!reason) return;
 
     try {
-      await api.post(`/invoices/${invoiceId}/cancel`, { reason });
+      await dataService.cancelInvoice(invoiceId, reason);
       fetchInvoices();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Cancellation failed.');
+      alert(err.message || 'Cancellation failed.');
     }
+  };
+
+  const handleExportCsv = () => {
+    if (invoices.length === 0) {
+      alert('No invoices to export.');
+      return;
+    }
+    const formatted = invoices.map((inv) => ({
+      ...inv,
+      totalFormatted: inv.totalAmount || inv.grandTotal || 0,
+      dateFormatted: formatISTDateTime(inv.createdAt),
+    }));
+    exportToCsv(
+      `trending_studio_invoices_${new Date().toISOString().slice(0, 10)}.csv`,
+      formatted,
+      [
+        { key: 'invoiceNumber', label: 'Invoice No' },
+        { key: 'customerName', label: 'Customer Name' },
+        { key: 'customerMobile', label: 'Customer Mobile' },
+        { key: 'dateFormatted', label: 'Date & Time' },
+        { key: 'totalFormatted', label: 'Grand Total (INR)' },
+        { key: 'taxAmount', label: 'Tax Amount (INR)' },
+        { key: 'status', label: 'Payment Status' },
+      ]
+    );
   };
 
   return (
@@ -75,6 +100,15 @@ export const Invoices: React.FC = () => {
             <option value="PARTIAL">Partial</option>
             <option value="UNPAID">Unpaid</option>
           </select>
+
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            className="px-3 py-2 bg-emerald-600/90 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 shadow-sm"
+          >
+            <Table className="w-3.5 h-3.5" />
+            <span>Export Sheets</span>
+          </button>
         </div>
       </div>
 

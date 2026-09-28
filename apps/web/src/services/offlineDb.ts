@@ -239,6 +239,21 @@ class OfflineDatabase {
     return list.length;
   }
 
+  public async getOfflineInvoices(): Promise<any[]> {
+    try {
+      const db = await this.getDB();
+      return new Promise((resolve) => {
+        const tx = db.transaction('offlineInvoices', 'readonly');
+        const store = tx.objectStore('offlineInvoices');
+        const req = store.getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => resolve([]);
+      });
+    } catch {
+      return [];
+    }
+  }
+
   public async markQueueItemSynced(operationId: string, serverId: string, invoiceNumber?: string): Promise<void> {
     try {
       const db = await this.getDB();

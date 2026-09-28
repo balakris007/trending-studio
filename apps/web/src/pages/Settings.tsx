@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
+import { dataService } from '../services/dataService';
+import { exportToCsv } from '../services/firebaseClient';
 import {
   Settings as SettingsIcon,
   Save,
@@ -11,6 +13,7 @@ import {
   Check,
   Copy,
   RefreshCw,
+  Download,
 } from 'lucide-react';
 import { IBusinessSettings } from '@trending-studio/shared-types';
 import { formatISTDateTime } from '@trending-studio/utils';
@@ -58,8 +61,8 @@ export const Settings: React.FC = () => {
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const res = await api.get('/settings');
-        setSettings(res.data.data || {});
+        const s = await dataService.getSettings();
+        setSettings(s || {});
       } catch (err) {
         console.error('Failed to load settings:', err);
       } finally {
@@ -146,14 +149,68 @@ export const Settings: React.FC = () => {
     setSuccessMsg('');
 
     try {
-      await api.put('/settings', settings);
-      setSuccessMsg('Business settings updated successfully!');
+      await dataService.saveSettings(settings);
+      setSuccessMsg('Business settings updated successfully in Cloud Firestore!');
       setTimeout(() => setSuccessMsg(''), 4000);
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to update settings');
+      alert(err.message || 'Failed to update settings');
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleExportInvoicesToSheets = async () => {
+    const invs = await dataService.getInvoices();
+    if (invs.length === 0) return alert('No invoices to export.');
+    exportToCsv(
+      `trending_studio_invoices_${new Date().toISOString().slice(0, 10)}.csv`,
+      invs.map((i) => ({
+        ...i,
+        total: i.totalAmount || i.grandTotal || 0,
+        formattedDate: formatISTDateTime(i.createdAt),
+      })),
+      [
+        { key: 'invoiceNumber', label: 'Invoice No' },
+        { key: 'customerName', label: 'Customer Name' },
+        { key: 'customerMobile', label: 'Customer Mobile' },
+        { key: 'formattedDate', label: 'Date' },
+        { key: 'total', label: 'Total (INR)' },
+        { key: 'status', label: 'Status' },
+      ]
+    );
+  };
+
+  const handleExportProductsToSheets = async () => {
+    const prods = await dataService.getProducts();
+    if (prods.length === 0) return alert('No products to export.');
+    exportToCsv(
+      `trending_studio_products_${new Date().toISOString().slice(0, 10)}.csv`,
+      prods,
+      [
+        { key: 'sku', label: 'SKU' },
+        { key: 'name', label: 'Product Name' },
+        { key: 'category', label: 'Category' },
+        { key: 'sellingPrice', label: 'Selling Price (INR)' },
+        { key: 'gstRate', label: 'GST %' },
+        { key: 'stock', label: 'Stock Qty' },
+      ]
+    );
+  };
+
+  const handleExportCustomersToSheets = async () => {
+    const custs = await dataService.getCustomers();
+    if (custs.length === 0) return alert('No customers to export.');
+    exportToCsv(
+      `trending_studio_customers_${new Date().toISOString().slice(0, 10)}.csv`,
+      custs,
+      [
+        { key: 'name', label: 'Customer Name' },
+        { key: 'mobile', label: 'Mobile' },
+        { key: 'city', label: 'City' },
+        { key: 'totalSpent', label: 'Total Spent (INR)' },
+        { key: 'loyaltyPoints', label: 'Loyalty Points' },
+      ]
+    );
   };
 
   return (
@@ -503,6 +560,43 @@ export const Settings: React.FC = () => {
                   <span>Open in Google Sheets</span>
                 </a>
               )}
+            </div>
+
+            {/* Instant Browser Export for Google Sheets */}
+            <div className="pt-3 border-t border-slate-800/80 space-y-2">
+              <p className="text-[11px] font-bold text-slate-300 flex items-center space-x-1.5">
+                <Table className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Instant Google Sheets / Excel Download (Direct from Browser)</span>
+              </p>
+              <p className="text-[10px] text-slate-400">
+                Instantly download your entire live database into CSV spreadsheets compatible with Google Sheets & Microsoft Excel:
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleExportInvoicesToSheets}
+                  className="px-3 py-2 bg-slate-800/80 hover:bg-slate-800 border border-emerald-500/30 hover:border-emerald-500/60 rounded-xl text-xs font-semibold text-emerald-300 flex items-center justify-center space-x-1.5 transition-all shadow-sm"
+                >
+                  <Download className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Download Invoices CSV</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportProductsToSheets}
+                  className="px-3 py-2 bg-slate-800/80 hover:bg-slate-800 border border-blue-500/30 hover:border-blue-500/60 rounded-xl text-xs font-semibold text-blue-300 flex items-center justify-center space-x-1.5 transition-all shadow-sm"
+                >
+                  <Download className="w-3.5 h-3.5 text-blue-400" />
+                  <span>Download Products CSV</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportCustomersToSheets}
+                  className="px-3 py-2 bg-slate-800/80 hover:bg-slate-800 border border-purple-500/30 hover:border-purple-500/60 rounded-xl text-xs font-semibold text-purple-300 flex items-center justify-center space-x-1.5 transition-all shadow-sm"
+                >
+                  <Download className="w-3.5 h-3.5 text-purple-400" />
+                  <span>Download Customers CSV</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

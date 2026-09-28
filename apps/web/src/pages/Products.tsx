@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
+import { dataService } from '../services/dataService';
 import { formatINR } from '@trending-studio/utils';
 import { Search, Plus, Package, AlertTriangle, ArrowUpDown, X, Tag } from 'lucide-react';
 import { IProduct } from '@trending-studio/shared-types';
@@ -31,8 +32,8 @@ export const Products: React.FC = () => {
 
   const fetchProducts = async () => {
     try {
-      const res = await api.get(`/products?search=${encodeURIComponent(search)}`);
-      setProducts(res.data.data || []);
+      const prods = await dataService.getProducts(search);
+      setProducts(prods || []);
     } catch (err) {
       console.error('Failed to load products:', err);
     } finally {
@@ -49,24 +50,24 @@ export const Products: React.FC = () => {
     if (!selectedProduct) return;
 
     try {
-      await api.post(`/products/${selectedProduct._id || selectedProduct.id}/stock`, {
-        quantityChange: Number(qtyDelta),
-        type: Number(qtyDelta) > 0 ? 'STOCK_IN' : 'STOCK_OUT',
-        notes: adjNotes,
-      });
+      await dataService.adjustProductStock(
+        selectedProduct._id || selectedProduct.id,
+        Number(qtyDelta),
+        adjNotes
+      );
       setShowStockModal(false);
       setQtyDelta(0);
       setAdjNotes('');
       fetchProducts();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to update stock');
+      alert(err.message || 'Failed to update stock');
     }
   };
 
   const handleCreateProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await api.post('/products', newProd);
+      await dataService.saveProduct(newProd);
       setShowAddModal(false);
       setNewProd({
         sku: '',
@@ -81,7 +82,7 @@ export const Products: React.FC = () => {
       });
       fetchProducts();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to create product');
+      alert(err.message || 'Failed to create product');
     }
   };
 
