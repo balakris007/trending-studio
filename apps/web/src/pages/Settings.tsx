@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { dataService } from '../services/dataService';
-import { exportToCsv } from '../services/firebaseClient';
+import { exportToCsv, GOOGLE_APPS_SCRIPT_CODE } from '../services/firebaseClient';
+import * as fsClient from '../services/firebaseClient';
 import {
   Settings as SettingsIcon,
   Save,
@@ -14,6 +15,7 @@ import {
   Copy,
   RefreshCw,
   Download,
+  Code,
 } from 'lucide-react';
 import { IBusinessSettings } from '@trending-studio/shared-types';
 import { formatISTDateTime } from '@trending-studio/utils';
@@ -27,6 +29,7 @@ export const Settings: React.FC = () => {
   // Google Sheets State
   const [sheetsConfig, setSheetsConfig] = useState({
     spreadsheetId: '',
+    webhookUrl: '',
     enabled: true,
     sheetUrl: '',
     serviceAccountEmail: 'firebase-adminsdk-fbsvc@trending-studio.iam.gserviceaccount.com',
@@ -37,6 +40,8 @@ export const Settings: React.FC = () => {
   const [syncingSheets, setSyncingSheets] = useState(false);
   const [sheetsMsg, setSheetsMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [copiedEmail, setCopiedEmail] = useState(false);
+  const [copiedScript, setCopiedScript] = useState(false);
+  const [showScriptModal, setShowScriptModal] = useState(false);
 
   const fetchSheetsStatus = async () => {
     try {
@@ -44,6 +49,7 @@ export const Settings: React.FC = () => {
       if (res.data?.data) {
         setSheetsConfig({
           spreadsheetId: res.data.data.spreadsheetId || '',
+          webhookUrl: res.data.data.webhookUrl || '',
           enabled: res.data.data.enabled !== false,
           sheetUrl: res.data.data.sheetUrl || '',
           serviceAccountEmail:
@@ -59,14 +65,16 @@ export const Settings: React.FC = () => {
     // Fallback: Read directly from Cloud Firestore settings
     try {
       const s: any = await dataService.getSettings();
-      if (s?.googleSheetsConfig?.spreadsheetId) {
+      const sheetCfg = s?.googleSheetsConfig || {};
+      if (sheetCfg.spreadsheetId || sheetCfg.webhookUrl) {
         setSheetsConfig((prev) => ({
           ...prev,
-          spreadsheetId: s.googleSheetsConfig.spreadsheetId,
-          enabled: s.googleSheetsConfig.enabled !== false,
-          sheetUrl: `https://docs.google.com/spreadsheets/d/${s.googleSheetsConfig.spreadsheetId}/edit`,
+          spreadsheetId: sheetCfg.spreadsheetId || '',
+          webhookUrl: sheetCfg.webhookUrl || '',
+          enabled: sheetCfg.enabled !== false,
+          sheetUrl: sheetCfg.spreadsheetId ? `https://docs.google.com/spreadsheets/d/${sheetCfg.spreadsheetId}/edit` : '',
           configured: true,
-          lastSyncedAt: s.googleSheetsConfig.lastSyncedAt,
+          lastSyncedAt: sheetCfg.lastSyncedAt,
         }));
       }
     } catch (fsErr) {
@@ -94,24 +102,34 @@ export const Settings: React.FC = () => {
     setTestingSheets(true);
     setSheetsMsg(null);
     try {
-      // 1. Try API first if available
-      try {
-        const res = await api.post('/sheets/test', { spreadsheetId: sheetsConfig.spreadsheetId });
+      // If Webhook URL is present, test it
+      if (sheetsConfig.webhookUrl.trim()) {
+        const res = await fsClient.syncToGoogleSheetsWebhook(sheetsConfig.webhookUrl.trim(), {
+          type: 'INVOICE',
+          data: {
+            invoiceNumber: 'TEST-CONNECTION',
+            createdAt: new Date().toISOString(),
+            customerName: 'Trending Studio POS Test',
+            customerMobile: '9999999999',
+            grandTotal: 10,
+            paymentMethod: 'TEST',
+            status: 'TEST',
+          },
+        });
         setSheetsMsg({
           type: 'success',
-          text: `Connected successfully to "${res.data.data.title}"! Tabs found: ${res.data.data.sheets.join(', ')}`,
+          text: `Google Apps Script Webhook responded successfully! Live spreadsheet sync is active.`,
         });
-        fetchSheetsStatus();
         return;
-      } catch {}
+      }
 
-      // 2. Direct validation for static hosting
+      // Direct validation for static hosting
       let cleanId = sheetsConfig.spreadsheetId.trim();
       const match = cleanId.match(/\/d\/([a-zA-Z0-9-_]+)/);
       if (match) cleanId = match[1];
 
       if (!cleanId || cleanId.length < 15) {
-        throw new Error('Please enter a valid Google Sheets URL or Spreadsheet ID.');
+        throw new Error('Please enter a valid Google Sheets Webhook URL or Spreadsheet ID.');
       }
 
       setSheetsMsg({
@@ -138,18 +156,11 @@ export const Settings: React.FC = () => {
     setTestingSheets(true);
     setSheetsMsg(null);
     try {
-      // 1. Try API first if configured
-      try {
-        await api.post('/sheets/config', {
-          spreadsheetId: sheetsConfig.spreadsheetId,
-          enabled: sheetsConfig.enabled,
-        });
-      } catch {}
-
-      // 2. Always persist directly to Cloud Firestore
+      // Persist directly to Cloud Firestore
       await dataService.saveSettings({
         googleSheetsConfig: {
           spreadsheetId: sheetsConfig.spreadsheetId,
+          webhookUrl: sheetsConfig.webhookUrl,
           enabled: sheetsConfig.enabled,
           lastSyncedAt: new Date().toISOString(),
         },
@@ -551,30 +562,56 @@ export const Settings: React.FC = () => {
             </div>
           </div>
 
-          {/* Sheet ID or URL Input */}
+          {/* Sheet ID & Webhook Input */}
           <div className="space-y-3 pt-1">
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Google Sheet URL or Spreadsheet ID
-              </label>
-              <input
-                type="text"
-                placeholder="https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit or ID"
-                value={sheetsConfig.spreadsheetId}
-                onChange={(e) => setSheetsConfig({ ...sheetsConfig, spreadsheetId: e.target.value })}
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white font-mono placeholder-slate-600"
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Google Apps Script Webhook URL (Recommended)
+                </label>
+                <input
+                  type="text"
+                  placeholder="https://script.google.com/macros/s/.../exec"
+                  value={sheetsConfig.webhookUrl}
+                  onChange={(e) => setSheetsConfig({ ...sheetsConfig, webhookUrl: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white font-mono placeholder-slate-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Google Sheet URL or Spreadsheet ID
+                </label>
+                <input
+                  type="text"
+                  placeholder="https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit or ID"
+                  value={sheetsConfig.spreadsheetId}
+                  onChange={(e) => setSheetsConfig({ ...sheetsConfig, spreadsheetId: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white font-mono placeholder-slate-600"
+                />
+              </div>
             </div>
 
-            <label className="flex items-center space-x-2 text-xs font-semibold text-slate-300 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={sheetsConfig.enabled}
-                onChange={(e) => setSheetsConfig({ ...sheetsConfig, enabled: e.target.checked })}
-                className="rounded text-emerald-600 focus:ring-0 w-4 h-4 bg-slate-950"
-              />
-              <span>Auto-append POS bills to Google Sheets immediately upon checkout</span>
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="flex items-center space-x-2 text-xs font-semibold text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={sheetsConfig.enabled}
+                  onChange={(e) => setSheetsConfig({ ...sheetsConfig, enabled: e.target.checked })}
+                  className="rounded text-emerald-600 focus:ring-0 w-4 h-4 bg-slate-950"
+                />
+                <span>Auto-append POS bills to Google Sheets immediately upon checkout</span>
+              </label>
+
+              <button
+                type="button"
+                onClick={() => setShowScriptModal(true)}
+                className="text-xs text-blue-400 hover:text-blue-300 font-semibold flex items-center space-x-1"
+              >
+                <Code className="w-3.5 h-3.5" />
+                <span>View Google Apps Script Code</span>
+              </button>
+            </div>
 
             {sheetsConfig.lastSyncedAt && (
               <p className="text-[11px] text-slate-400">
@@ -599,7 +636,7 @@ export const Settings: React.FC = () => {
               <button
                 type="button"
                 onClick={handleTestSheets}
-                disabled={testingSheets || !sheetsConfig.spreadsheetId}
+                disabled={testingSheets || (!sheetsConfig.spreadsheetId && !sheetsConfig.webhookUrl)}
                 className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-slate-700 transition-colors disabled:opacity-50 flex items-center space-x-1.5"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${testingSheets ? 'animate-spin' : ''}`} />
@@ -609,21 +646,20 @@ export const Settings: React.FC = () => {
               <button
                 type="button"
                 onClick={handleSaveSheetsConfig}
-                disabled={testingSheets || !sheetsConfig.spreadsheetId}
+                disabled={testingSheets || (!sheetsConfig.spreadsheetId && !sheetsConfig.webhookUrl)}
                 className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/30 transition-transform active:scale-95 disabled:opacity-50 flex items-center space-x-1.5"
               >
                 <Save className="w-3.5 h-3.5" />
-                <span>Save & Init Sheets</span>
+                <span>Save Sheets Config</span>
               </button>
 
               <button
                 type="button"
                 onClick={handleSyncAllSheets}
-                disabled={syncingSheets || !sheetsConfig.spreadsheetId}
                 className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-600/30 transition-transform active:scale-95 disabled:opacity-50 flex items-center space-x-1.5"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${syncingSheets ? 'animate-spin' : ''}`} />
-                <span>Sync All Data to Sheet</span>
+                <span>Sync All to Sheet / CSV</span>
               </button>
 
               {sheetsConfig.sheetUrl && (
@@ -687,6 +723,67 @@ export const Settings: React.FC = () => {
           <span>{saving ? 'Saving Settings...' : 'Save Configuration'}</span>
         </button>
       </form>
+
+      {/* APPS SCRIPT CODE MODAL */}
+      {showScriptModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl max-w-2xl w-full p-6 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-2">
+                <Code className="w-5 h-5 text-emerald-400" />
+                <h3 className="text-base font-bold text-white">Google Apps Script Webhook Code</h3>
+              </div>
+              <button
+                onClick={() => setShowScriptModal(false)}
+                className="text-slate-400 hover:text-white text-lg font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-300">
+              Follow these simple steps to link your Google Sheet in under 60 seconds:
+            </p>
+
+            <ol className="list-decimal list-inside space-y-1.5 text-xs text-slate-300">
+              <li>Open your Google Sheet (or create a new blank Google Sheet).</li>
+              <li>Click on <strong className="text-white">Extensions → Apps Script</strong> in the top menu.</li>
+              <li>Delete any existing code in the editor, and paste the code below.</li>
+              <li>Click the blue <strong className="text-white">Deploy → New Deployment</strong> button.</li>
+              <li>Select type <strong className="text-white">Web app</strong>. Set <strong className="text-white">Execute as: Me</strong> and <strong className="text-white">Who has access: Anyone</strong>.</li>
+              <li>Click <strong className="text-white">Deploy</strong>, copy the Webhook URL, and paste it into Trending Studio!</li>
+            </ol>
+
+            <div className="relative">
+              <pre className="p-3 bg-slate-950 border border-slate-800 rounded-xl text-[11px] font-mono text-emerald-400 overflow-x-auto max-h-60">
+                {GOOGLE_APPS_SCRIPT_CODE}
+              </pre>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(GOOGLE_APPS_SCRIPT_CODE);
+                  setCopiedScript(true);
+                  setTimeout(() => setCopiedScript(false), 3000);
+                }}
+                className="absolute top-2 right-2 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold flex items-center space-x-1 border border-slate-700"
+              >
+                {copiedScript ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copiedScript ? 'Copied!' : 'Copy Code'}</span>
+              </button>
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowScriptModal(false)}
+                className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

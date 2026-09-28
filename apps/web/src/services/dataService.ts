@@ -199,11 +199,26 @@ export const dataService = {
       const local = await offlineDb.saveOfflineInvoice({
         ...(finalInvoice || invoicePayload),
         ...calculatedData,
+        syncStatus: finalInvoice ? 'SYNCED' : 'PENDING',
+        isOffline: !finalInvoice,
       });
 
       if (!finalInvoice) {
         finalInvoice = local;
       }
+    }
+
+    // Auto-push to Google Sheets if configured
+    if (finalInvoice) {
+      try {
+        const settings: any = await this.getSettings();
+        if (settings?.googleSheetsConfig?.webhookUrl && settings.googleSheetsConfig.enabled !== false) {
+          fsClient.syncToGoogleSheetsWebhook(settings.googleSheetsConfig.webhookUrl, {
+            type: 'INVOICE',
+            data: finalInvoice,
+          }).catch((e) => console.warn('[DataService] Auto sheet push error:', e));
+        }
+      } catch {}
     }
 
     return finalInvoice;

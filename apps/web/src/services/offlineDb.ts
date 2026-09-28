@@ -180,15 +180,19 @@ class OfflineDatabase {
     const offlineSeq = (parseInt(localStorage.getItem('ts_offline_seq') || '100', 10) + 1).toString();
     localStorage.setItem('ts_offline_seq', offlineSeq);
 
-    const localId = `OFFLINE_TS_${Date.now()}_${offlineSeq}`;
+    const localId = invoiceData._id || invoiceData.id || `OFFLINE_TS_${Date.now()}_${offlineSeq}`;
+    const invNumber = invoiceData.invoiceNumber || `OFFLINE-TS-${offlineSeq}`;
+    const syncStatus = invoiceData.syncStatus || 'PENDING';
+    const isOffline = invoiceData.isOffline ?? (syncStatus === 'PENDING');
+
     const fullInvoice = {
       ...invoiceData,
       _id: localId,
       id: localId,
-      invoiceNumber: `OFFLINE-TS-${offlineSeq}`,
-      isOffline: true,
-      syncStatus: 'PENDING',
-      createdAt: new Date().toISOString(),
+      invoiceNumber: invNumber,
+      isOffline,
+      syncStatus,
+      createdAt: invoiceData.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
@@ -196,16 +200,18 @@ class OfflineDatabase {
     const tx = db.transaction(['offlineInvoices', 'offlineQueue'], 'readwrite');
     tx.objectStore('offlineInvoices').put(fullInvoice);
 
-    // 2. Add to offlineQueue for background sync
-    const queueItem: IOfflineQueueItem = {
-      operationId: `op_inv_${localId}`,
-      entity: 'invoice',
-      operationType: 'CREATE',
-      payload: fullInvoice,
-      createdAt: new Date().toISOString(),
-      status: 'PENDING',
-    };
-    tx.objectStore('offlineQueue').put(queueItem);
+    // 2. Add to offlineQueue for background sync if pending
+    if (syncStatus === 'PENDING') {
+      const queueItem: IOfflineQueueItem = {
+        operationId: `op_inv_${localId}`,
+        entity: 'invoice',
+        operationType: 'CREATE',
+        payload: fullInvoice,
+        createdAt: new Date().toISOString(),
+        status: 'PENDING',
+      };
+      tx.objectStore('offlineQueue').put(queueItem);
+    }
 
     return new Promise((resolve, reject) => {
       tx.oncomplete = () => {
@@ -254,41 +260,126 @@ class OfflineDatabase {
     }
   }
 
-  public async markQueueItemSynced(operationId: string, serverId: string, invoiceNumber?: string): Promise<void> {
+  public async markInvoiceSynced(invoiceId: string, serverId?: string, invoiceNumber?: string): Promise<void> {
     try {
       const db = await this.getDB();
-      const tx = db.transaction(['offlineQueue', 'offlineInvoices'], 'readwrite');
-      const queueStore = tx.objectStore('offlineQueue');
+      const tx = db.transaction(['offlineInvoices', 'offlineQueue'], 'readwrite');
       const invStore = tx.objectStore('offlineInvoices');
+      const queueStore = tx.objectStore('offlineQueue');
 
-      // Update queue item
-      const req = queueStore.get(operationId);
-      req.onsuccess = () => {
-        if (req.result) {
-          req.result.status = 'SYNCED';
-          queueStore.put(req.result);
+      const invReq = invStore.getAll();
+      invReq.onsuccess = () => {
+        for (const inv of invReq.result || []) {
+          if (inv._id === invoiceId || inv.id === invoiceId || `op_inv_${inv._id}` === invoiceId) {
+            inv.syncStatus = 'SYNCED';
+            inv.isOffline = false;
+            if (invoiceNumber) {
+              inv.officialInvoiceNumber = invoiceNumber;
+              inv.invoiceNumber = invoiceNumber;
+            }
+            invStore.put(inv);
+          }
         }
       };
 
-      // If it's an invoice, update with official invoiceNumber
-      if (invoiceNumber) {
-        const invReq = invStore.getAll();
-        invReq.onsuccess = () => {
-          for (const inv of invReq.result) {
-            if (`op_inv_${inv._id}` === operationId) {
-              inv.officialInvoiceNumber = invoiceNumber;
-              inv.syncStatus = 'SYNCED';
-              invStore.put(inv);
-            }
+      const qReq = queueStore.getAll();
+      qReq.onsuccess = () => {
+        for (const item of qReq.result || []) {
+          if (
+            item.operationId === invoiceId ||
+            item.operationId === `op_inv_${invoiceId}` ||
+            item.payload?._id === invoiceId ||
+            item.payload?.id === invoiceId
+          ) {
+            item.status = 'SYNCED';
+            queueStore.put(item);
           }
-        };
-      }
+        }
+      };
 
       tx.oncomplete = () => {
         window.dispatchEvent(new CustomEvent('offline-queue-changed'));
       };
     } catch (err) {
-      console.error('[OfflineDB] Error marking synced:', err);
+      console.error('[OfflineDB] Error marking invoice synced:', err);
+    }
+  }
+
+  public async markQueueItemSynced(operationId: string, serverId: string, invoiceNumber?: string): Promise<void> {
+    return this.markInvoiceSynced(operationId, serverId, invoiceNumber);
+  }
+
+  public async getOfflineStats(): Promise<{
+    totalInvoices: number;
+    pendingInvoices: number;
+    totalCustomers: number;
+    totalProducts: number;
+    pendingQueueCount: number;
+  }> {
+    try {
+      const [invoices, customers, products, pendingQueue] = await Promise.all([
+        this.getOfflineInvoices(),
+        this.getCachedCustomers(),
+        this.getCachedProducts(),
+        this.getPendingQueue(),
+      ]);
+
+      const pendingInvoices = invoices.filter(
+        (inv: any) => inv.syncStatus !== 'SYNCED' || inv.isOffline === true
+      ).length;
+
+      return {
+        totalInvoices: invoices.length,
+        pendingInvoices,
+        totalCustomers: customers.length,
+        totalProducts: products.length,
+        pendingQueueCount: pendingQueue.length,
+      };
+    } catch {
+      return {
+        totalInvoices: 0,
+        pendingInvoices: 0,
+        totalCustomers: 0,
+        totalProducts: 0,
+        pendingQueueCount: 0,
+      };
+    }
+  }
+
+  public async getAllIndexedDBData(): Promise<{
+    invoices: any[];
+    customers: any[];
+    products: any[];
+    photoPrices: any[];
+    pendingQueue: any[];
+  }> {
+    const [invoices, customers, products, photoPrices, pendingQueue] = await Promise.all([
+      this.getOfflineInvoices(),
+      this.getCachedCustomers(),
+      this.getCachedProducts(),
+      this.getCachedPhotoPrices(),
+      this.getPendingQueue(),
+    ]);
+    return { invoices, customers, products, photoPrices, pendingQueue };
+  }
+
+  public async saveCustomerLocally(customer: any): Promise<void> {
+    try {
+      const db = await this.getDB();
+      const tx = db.transaction('customers', 'readwrite');
+      tx.objectStore('customers').put(customer);
+    } catch (err) {
+      console.warn('[OfflineDB] Failed to save customer locally:', err);
+    }
+  }
+
+  public async saveProductLocally(product: any): Promise<void> {
+    try {
+      const db = await this.getDB();
+      const tx = db.transaction('products', 'readwrite');
+      tx.objectStore('products').put(product);
+    } catch (err) {
+      console.warn('[OfflineDB] Failed to save product locally:', err);
     }
   }
 

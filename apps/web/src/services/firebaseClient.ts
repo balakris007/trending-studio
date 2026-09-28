@@ -46,6 +46,34 @@ export const firestore = getFirestore(app);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
+/**
+ * Recursively strips undefined values so Cloud Firestore setDoc/updateDoc never fails.
+ * Firestore strictly forbids 'undefined' values in document payloads.
+ */
+export function sanitizeForFirestore<T>(val: T): T {
+  if (val === undefined) {
+    return null as any;
+  }
+  if (val === null || typeof val !== 'object') {
+    return val;
+  }
+  if (val instanceof Date) {
+    return val.toISOString() as any;
+  }
+  if (Array.isArray(val)) {
+    return val
+      .filter((item) => item !== undefined)
+      .map((item) => sanitizeForFirestore(item)) as any;
+  }
+  const clean: Record<string, any> = {};
+  for (const [k, v] of Object.entries(val)) {
+    if (v !== undefined) {
+      clean[k] = sanitizeForFirestore(v);
+    }
+  }
+  return clean as any;
+}
+
 // ----------------------------------------------------------------------
 // 1. Direct Firestore Authentication & User Management
 // ----------------------------------------------------------------------
@@ -599,7 +627,8 @@ export async function saveProductToFirestore(product: Partial<IProduct>): Promis
     updatedAt: new Date().toISOString(),
     createdAt: (product as any).createdAt || new Date().toISOString(),
   };
-  await setDoc(doc(firestore, 'products', prodId), clean, { merge: true });
+  const sanitized = sanitizeForFirestore(clean);
+  await setDoc(doc(firestore, 'products', prodId), sanitized, { merge: true });
   return clean as IProduct;
 }
 
@@ -657,7 +686,8 @@ export async function saveCustomerToFirestore(customer: Partial<ICustomer>): Pro
     outstandingBalance: (customer as any).outstandingBalance || 0,
     loyaltyPoints: (customer as any).loyaltyPoints || 0,
   };
-  await setDoc(doc(firestore, 'customers', custId), clean, { merge: true });
+  const sanitized = sanitizeForFirestore(clean);
+  await setDoc(doc(firestore, 'customers', custId), sanitized, { merge: true });
   return clean as ICustomer;
 }
 
@@ -691,9 +721,12 @@ export async function saveInvoiceToFirestore(invoice: any): Promise<any> {
     createdAt: invoice.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     status: invoice.status || 'PAID',
+    isOffline: false,
+    syncStatus: 'SYNCED',
   };
 
-  await setDoc(doc(firestore, 'invoices', invId), cleanInvoice, { merge: true });
+  const sanitized = sanitizeForFirestore(cleanInvoice);
+  await setDoc(doc(firestore, 'invoices', invId), sanitized, { merge: true });
 
   // Update customer total spent & loyalty points
   if (invoice.customerId) {
@@ -705,21 +738,23 @@ export async function saveInvoiceToFirestore(invoice: any): Promise<any> {
         const addedPoints = Math.floor((invoice.totalAmount || invoice.grandTotal || 0) / 100);
         await setDoc(
           doc(firestore, 'customers', invoice.customerId),
-          {
+          sanitizeForFirestore({
             totalSpent: spent,
             loyaltyPoints: (cur.loyaltyPoints || 0) + addedPoints,
             updatedAt: new Date().toISOString(),
-          },
+          }),
           { merge: true }
         );
       }
-    } catch {}
+    } catch (custErr) {
+      console.warn('[Firestore] Customer metrics update skipped:', custErr);
+    }
   }
 
   // Deduct product stock in Firestore
   if (Array.isArray(invoice.items)) {
     for (const item of invoice.items) {
-      if (item.productId && item.itemType === 'PRODUCT') {
+      if (item.productId && (item.itemType === 'PRODUCT' || !item.itemType)) {
         try {
           await updateProductStockInFirestore(item.productId, -1 * (item.quantity || 1));
         } catch {}
@@ -811,10 +846,11 @@ export async function getFirestoreSettings(): Promise<Partial<IBusinessSettings>
 }
 
 export async function saveSettingsToFirestore(settings: Partial<IBusinessSettings>): Promise<void> {
-  await setDoc(doc(firestore, 'business_settings', 'default_business'), {
+  const sanitized = sanitizeForFirestore({
     ...settings,
     updatedAt: new Date().toISOString(),
-  }, { merge: true });
+  });
+  await setDoc(doc(firestore, 'business_settings', 'default_business'), sanitized, { merge: true });
 }
 
 // ----------------------------------------------------------------------
@@ -823,7 +859,7 @@ export async function saveSettingsToFirestore(settings: Partial<IBusinessSetting
 
 /**
  * Direct sync to Google Sheets via Google Apps Script Webhook
- * Allows hosted client to push invoices/products/customers directly to a spreadsheet
+ * Sends text/plain to avoid CORS preflight options check on Google Apps Script
  */
 export async function syncToGoogleSheetsWebhook(
   webhookUrl: string,
@@ -833,24 +869,28 @@ export async function syncToGoogleSheetsWebhook(
   }
 ): Promise<{ success: boolean; message?: string }> {
   try {
-    const res = await fetch(webhookUrl, {
+    const cleanUrl = webhookUrl.trim();
+    if (!cleanUrl) {
+      throw new Error('Google Sheets Webhook URL is empty');
+    }
+    await fetch(cleanUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({
         ...payload,
         syncedAt: new Date().toISOString(),
-        source: 'Trending Studio Web App',
+        source: 'Trending Studio POS Terminal',
       }),
-      mode: 'no-cors', // Google Apps Script Web Apps often require no-cors in browser
+      mode: 'no-cors',
     });
-    return { success: true, message: 'Data synced successfully to Google Sheets!' };
+    return { success: true, message: 'Data pushed to Google Sheets successfully!' };
   } catch (err: any) {
     return { success: false, message: err.message || 'Failed to sync to Google Sheets' };
   }
 }
 
 /**
- * Export data directly to CSV format for Google Sheets / Excel import
+ * Export data directly to CSV format for Google Sheets / Excel import using Blob & UTF-8 BOM
  */
 export function exportToCsv(filename: string, rows: any[], headers: { key: string; label: string }[]): void {
   const headerLine = headers.map((h) => `"${h.label.replace(/"/g, '""')}"`).join(',');
@@ -863,15 +903,84 @@ export function exportToCsv(filename: string, rows: any[], headers: { key: strin
       .join(',')
   );
 
-  const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headerLine, ...rowLines].join('\n');
-  const encodedUri = encodeURI(csvContent);
+  const csvContent = '\uFEFF' + [headerLine, ...rowLines].join('\r\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
-  link.setAttribute('href', encodedUri);
+  link.setAttribute('href', url);
   link.setAttribute('download', filename);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+/**
+ * Copy-pasteable Google Apps Script for live Google Sheets synchronization
+ */
+export const GOOGLE_APPS_SCRIPT_CODE = `function doPost(e) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var payload = JSON.parse(e.postData.contents);
+    var type = payload.type;
+    var data = payload.data;
+    
+    if (type === 'INVOICE') {
+      var invSheet = ss.getSheetByName('Invoices') || ss.insertSheet('Invoices');
+      if (invSheet.getLastRow() === 0) {
+        invSheet.appendRow(['Invoice No', 'Date', 'Customer', 'Mobile', 'Amount (INR)', 'Payment', 'Status']);
+      }
+      invSheet.appendRow([
+        data.invoiceNumber || data._id,
+        data.createdAt || new Date().toISOString(),
+        data.customerName || '',
+        data.customerMobile || '',
+        data.grandTotal || data.totalAmount || 0,
+        data.paymentMethod || 'CASH',
+        data.status || 'PAID'
+      ]);
+    } else if (type === 'FULL_SYNC') {
+      if (data.invoices && data.invoices.length > 0) {
+        var invSheet = ss.getSheetByName('Invoices') || ss.insertSheet('Invoices');
+        invSheet.clear();
+        invSheet.appendRow(['Invoice No', 'Date', 'Customer', 'Mobile', 'Amount (INR)', 'Payment', 'Status']);
+        for (var i = 0; i < data.invoices.length; i++) {
+          var inv = data.invoices[i];
+          invSheet.appendRow([
+            inv.invoiceNumber || inv._id,
+            inv.createdAt || '',
+            inv.customerName || '',
+            inv.customerMobile || '',
+            inv.grandTotal || inv.totalAmount || 0,
+            inv.paymentMethod || 'CASH',
+            inv.status || 'PAID'
+          ]);
+        }
+      }
+      if (data.products && data.products.length > 0) {
+        var prodSheet = ss.getSheetByName('Products') || ss.insertSheet('Products');
+        prodSheet.clear();
+        prodSheet.appendRow(['SKU', 'Product Name', 'Category', 'Selling Price', 'Stock']);
+        for (var j = 0; j < data.products.length; j++) {
+          var p = data.products[j];
+          prodSheet.appendRow([p.sku || '', p.name || '', p.category || '', p.sellingPrice || 0, p.stock || p.stockQuantity || 0]);
+        }
+      }
+      if (data.customers && data.customers.length > 0) {
+        var custSheet = ss.getSheetByName('Customers') || ss.insertSheet('Customers');
+        custSheet.clear();
+        custSheet.appendRow(['Name', 'Mobile', 'City', 'Total Spent (INR)']);
+        for (var k = 0; k < data.customers.length; k++) {
+          var c = data.customers[k];
+          custSheet.appendRow([c.name || '', c.mobile || '', c.city || '', c.totalSpent || 0]);
+        }
+      }
+    }
+    return ContentService.createTextOutput(JSON.stringify({ status: 'success' })).setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: err.toString() })).setMimeType(ContentService.MimeType.JSON);
+  }
+}`;
 
 // ----------------------------------------------------------------------
 // 8. Orders Management in Cloud Firestore
