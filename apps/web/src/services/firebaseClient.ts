@@ -918,7 +918,14 @@ export function exportToCsv(filename: string, rows: any[], headers: { key: strin
 /**
  * Copy-pasteable Google Apps Script for live Google Sheets synchronization
  */
-export const GOOGLE_APPS_SCRIPT_CODE = `function doPost(e) {
+export const GOOGLE_APPS_SCRIPT_CODE = `function doGet(e) {
+  return ContentService.createTextOutput(JSON.stringify({
+    status: 'online',
+    message: 'Trending Studio Google Sheets Webhook is active and working!'
+  })).setMimeType(ContentService.MimeType.JSON);
+}
+
+function doPost(e) {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var payload = JSON.parse(e.postData.contents);

@@ -210,6 +210,7 @@ export const SyncCenter: React.FC = () => {
     setSavingWebhook(true);
     setWebhookMsg(null);
     try {
+      // Save to settings
       await dataService.saveSettings({
         googleSheetsConfig: {
           ...sheetsStatus,
@@ -219,21 +220,19 @@ export const SyncCenter: React.FC = () => {
         },
       } as any);
 
-      // Send a test ping
-      const res = await fsClient.syncToGoogleSheetsWebhook(url, {
-        type: 'INVOICE',
-        data: {
-          invoiceNumber: 'TEST-PING',
-          createdAt: new Date().toISOString(),
-          customerName: 'Trending Studio POS Test',
-          customerMobile: '9999999999',
-          grandTotal: 100,
-          paymentMethod: 'TEST',
-          status: 'TEST',
-        },
+      // Immediately push all existing invoices, customers, and products to Google Sheets
+      const allInvoices = await offlineDb.getOfflineInvoices();
+      const allCusts = await offlineDb.getCachedCustomers();
+      const allProds = await offlineDb.getCachedProducts();
+
+      await fsClient.syncToGoogleSheetsWebhook(url, {
+        type: 'FULL_SYNC',
+        data: { invoices: allInvoices, customers: allCusts, products: allProds },
       });
 
-      setWebhookMsg('Webhook URL verified and saved to Cloud Firestore!');
+      setWebhookMsg(
+        `Webhook URL verified and connected! Immediately pushed ${allInvoices.length} invoices, ${allCusts.length} customers, and ${allProds.length} products to your Google Sheet!`
+      );
       await fetchSyncData();
     } catch (err: any) {
       setWebhookMsg(err.message || 'Failed to verify webhook URL.');
@@ -550,16 +549,24 @@ export const SyncCenter: React.FC = () => {
               </div>
               <span
                 className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                  sheetsStatus?.configured
+                  sheetsStatus?.webhookUrl
                     ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                    : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                    : sheetsStatus?.spreadsheetId
+                    ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                    : 'bg-slate-800 text-slate-400 border-slate-700'
                 }`}
               >
-                {sheetsStatus?.configured ? 'CONNECTED' : 'NOT CONFIGURED'}
+                {sheetsStatus?.webhookUrl
+                  ? 'LIVE SYNC ACTIVE'
+                  : sheetsStatus?.spreadsheetId
+                  ? 'WEBHOOK NEEDED'
+                  : 'NOT CONFIGURED'}
               </span>
             </div>
             <p className="text-[11px] text-slate-300">
-              Spreadsheet records for <strong className="text-emerald-400">Invoices</strong>, <strong className="text-emerald-400">Products</strong>, and <strong className="text-emerald-400">Customers</strong> for auditing.
+              {sheetsStatus?.webhookUrl
+                ? 'Live Google Apps Script Webhook is linked. Every bill automatically updates your Google Sheet in real time.'
+                : 'Connect your 60-second Google Apps Script Webhook below to automatically stream invoices into Google Sheets.'}
             </p>
             {sheetsSyncMsg && (
               <p className="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 p-1.5 rounded-lg">
