@@ -1,5 +1,10 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+} from 'firebase/auth';
+import {
   getFirestore,
   collection,
   doc,
@@ -38,6 +43,8 @@ export const firebaseConfig = {
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const firestore = getFirestore(app);
+export const auth = getAuth(app);
+export const googleProvider = new GoogleAuthProvider();
 
 // ----------------------------------------------------------------------
 // 1. Direct Firestore Authentication & User Management
@@ -196,6 +203,346 @@ export async function registerUserInFirestore(userData: {
     permissions: newUser.permissions,
     branchId: newUser.branchId,
     isActive: true,
+  };
+}
+
+// ----------------------------------------------------------------------
+// Mobile Number OTP Authentication
+// ----------------------------------------------------------------------
+
+export async function sendMobileOtp(phone: string): Promise<{ success: boolean; otp: string; phone: string; userName?: string }> {
+  const cleanPhone = phone.trim().replace(/[^0-9]/g, '').slice(-10);
+  if (!cleanPhone || cleanPhone.length < 10) {
+    throw new Error('Please enter a valid 10-digit mobile number.');
+  }
+
+  // Look for registered user in Firestore
+  const usersRef = collection(firestore, 'users');
+  const allUsers = await getDocs(usersRef);
+  let foundUser: any = null;
+
+  for (const d of allUsers.docs) {
+    const data = d.data();
+    const userPhone = (data.phone || '').replace(/[^0-9]/g, '').slice(-10);
+    if (userPhone === cleanPhone) {
+      foundUser = { ...data, _id: d.id };
+      break;
+    }
+  }
+
+  // Generate 6-digit random OTP
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  const expiresAt = Date.now() + 5 * 60 * 1000; // 5 mins validity
+
+  // Save OTP in Firestore
+  await setDoc(doc(firestore, 'otps', cleanPhone), {
+    phone: cleanPhone,
+    otp,
+    expiresAt,
+    createdAt: new Date().toISOString(),
+  });
+
+  return {
+    success: true,
+    otp,
+    phone: cleanPhone,
+    userName: foundUser?.name || 'Staff User',
+  };
+}
+
+export async function verifyMobileOtpAndLogin(
+  phone: string,
+  otp: string
+): Promise<{ user: IUser; branch: IBranch; tokens: { accessToken: string; refreshToken: string } }> {
+  const cleanPhone = phone.trim().replace(/[^0-9]/g, '').slice(-10);
+  const cleanOtp = otp.trim();
+
+  // Demo master fallback is 123456
+  let isValid = cleanOtp === '123456';
+
+  if (!isValid) {
+    const otpDoc = await getDoc(doc(firestore, 'otps', cleanPhone));
+    if (otpDoc.exists()) {
+      const data = otpDoc.data();
+      if (data.otp === cleanOtp && data.expiresAt > Date.now()) {
+        isValid = true;
+      }
+    }
+  }
+
+  if (!isValid) {
+    throw new Error('Invalid or expired OTP. Please check the 6-digit code or request a new OTP.');
+  }
+
+  // Find user by phone
+  const usersRef = collection(firestore, 'users');
+  const allUsers = await getDocs(usersRef);
+  let foundDoc: any = null;
+
+  for (const d of allUsers.docs) {
+    const data = d.data();
+    const userPhone = (data.phone || '').replace(/[^0-9]/g, '').slice(-10);
+    if (userPhone === cleanPhone) {
+      foundDoc = d;
+      break;
+    }
+  }
+
+  let user: IUser;
+  if (foundDoc) {
+    const userData = foundDoc.data();
+    user = {
+      _id: foundDoc.id,
+      id: foundDoc.id,
+      name: userData.name || 'Mobile Staff',
+      email: userData.email || `${cleanPhone}@trendingstudio.com`,
+      phone: cleanPhone,
+      role: (userData.role as Role) || Role.BILLING_STAFF,
+      permissions: (userData.permissions as Permission[]) || [Permission.VIEW, Permission.CREATE, Permission.PRINT],
+      branchId: userData.branchId || 'branch_kkdi_main',
+      isActive: userData.isActive !== false,
+    };
+  } else {
+    // If Owner phone (7904064446), create as Super Admin
+    const isOwner = cleanPhone === '7904064446';
+    const newId = `usr_mobile_${cleanPhone}`;
+    user = {
+      _id: newId,
+      id: newId,
+      name: isOwner ? 'Trending Studio Owner' : `Staff (${cleanPhone})`,
+      email: `${cleanPhone}@trendingstudio.com`,
+      phone: cleanPhone,
+      role: isOwner ? Role.SUPER_ADMIN : Role.BILLING_STAFF,
+      permissions: Object.values(Permission),
+      branchId: 'branch_kkdi_main',
+      isActive: true,
+    };
+    await setDoc(doc(firestore, 'users', newId), {
+      ...user,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  const branch: IBranch = {
+    _id: 'branch_kkdi_main',
+    name: 'Trending Studio — Karaikudi Main',
+    code: 'KKDI-01',
+    phone: '+91-79040-64446',
+    address: 'No:1, Meyyappan Ambalam Complex, Karaikudi - 630001',
+    isMainBranch: true,
+    isActive: true,
+    invoiceSequenceCounter: 100,
+  };
+
+  const tokens = {
+    accessToken: `fs_token_${user._id}_${Date.now()}`,
+    refreshToken: `fs_refresh_${user._id}_${Date.now()}`,
+  };
+
+  // Clean up used OTP
+  try {
+    await deleteDoc(doc(firestore, 'otps', cleanPhone));
+  } catch {}
+
+  return { user, branch, tokens };
+}
+
+// ----------------------------------------------------------------------
+// Gmail / Google Account Admin Authentication
+// ----------------------------------------------------------------------
+
+export async function loginWithGoogleAdmin(): Promise<{ user: IUser; branch: IBranch; tokens: { accessToken: string; refreshToken: string } }> {
+  googleProvider.setCustomParameters({ prompt: 'select_account' });
+  const result = await signInWithPopup(auth, googleProvider);
+  const gUser = result.user;
+  const email = (gUser.email || '').toLowerCase().trim();
+
+  // Find user by email in Firestore
+  const usersRef = collection(firestore, 'users');
+  const allUsers = await getDocs(usersRef);
+  let foundDoc: any = null;
+
+  for (const d of allUsers.docs) {
+    const data = d.data();
+    if (data.email && data.email.toLowerCase().trim() === email) {
+      foundDoc = d;
+      break;
+    }
+  }
+
+  let user: IUser;
+  if (foundDoc) {
+    const userData = foundDoc.data();
+    user = {
+      _id: foundDoc.id,
+      id: foundDoc.id,
+      name: userData.name || gUser.displayName || 'Google Admin',
+      email: userData.email || email,
+      phone: userData.phone || gUser.phoneNumber || '7904064446',
+      role: (userData.role as Role) || Role.SUPER_ADMIN,
+      permissions: Object.values(Permission),
+      branchId: userData.branchId || 'branch_kkdi_main',
+      isActive: userData.isActive !== false,
+    };
+  } else {
+    // Auto-provision Google Admin in Firestore
+    const userId = `usr_google_${gUser.uid}`;
+    user = {
+      _id: userId,
+      id: userId,
+      name: gUser.displayName || 'Trending Studio Admin',
+      email,
+      phone: gUser.phoneNumber || '7904064446',
+      role: Role.SUPER_ADMIN,
+      permissions: Object.values(Permission),
+      branchId: 'branch_kkdi_main',
+      isActive: true,
+    };
+    await setDoc(doc(firestore, 'users', userId), {
+      ...user,
+      photoURL: gUser.photoURL,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  const branch: IBranch = {
+    _id: 'branch_kkdi_main',
+    name: 'Trending Studio — Karaikudi Main',
+    code: 'KKDI-01',
+    phone: '+91-79040-64446',
+    address: 'No:1, Meyyappan Ambalam Complex, Karaikudi - 630001',
+    isMainBranch: true,
+    isActive: true,
+    invoiceSequenceCounter: 100,
+  };
+
+  const tokens = {
+    accessToken: `fs_token_${user._id}_${Date.now()}`,
+    refreshToken: `fs_refresh_${user._id}_${Date.now()}`,
+  };
+
+  return { user, branch, tokens };
+}
+
+// ----------------------------------------------------------------------
+// Password Reset via Mobile/Email OTP
+// ----------------------------------------------------------------------
+
+export async function requestPasswordResetOtp(identifier: string): Promise<{ success: boolean; otp: string; phone: string; userName: string }> {
+  const clean = identifier.trim().toLowerCase();
+  const cleanPhone = clean.replace(/[^0-9]/g, '').slice(-10);
+
+  const usersRef = collection(firestore, 'users');
+  const allUsers = await getDocs(usersRef);
+  let foundDoc: any = null;
+
+  for (const d of allUsers.docs) {
+    const data = d.data();
+    const uPhone = (data.phone || '').replace(/[^0-9]/g, '').slice(-10);
+    const uEmail = (data.email || '').toLowerCase().trim();
+    if ((cleanPhone.length === 10 && uPhone === cleanPhone) || uEmail === clean) {
+      foundDoc = d;
+      break;
+    }
+  }
+
+  if (!foundDoc) {
+    throw new Error('No registered staff user found with that email or phone number.');
+  }
+
+  const userData = foundDoc.data();
+  const targetPhone = (userData.phone || cleanPhone || '7904064446').replace(/[^0-9]/g, '').slice(-10);
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+  await setDoc(doc(firestore, 'otps', `reset_${targetPhone}`), {
+    phone: targetPhone,
+    otp,
+    userId: foundDoc.id,
+    expiresAt: Date.now() + 10 * 60 * 1000,
+    createdAt: new Date().toISOString(),
+  });
+
+  return {
+    success: true,
+    otp,
+    phone: targetPhone,
+    userName: userData.name || 'Staff User',
+  };
+}
+
+export async function resetUserPassword(
+  identifier: string,
+  otp: string,
+  newPassword: string
+): Promise<{ success: boolean; message: string }> {
+  const clean = identifier.trim().toLowerCase();
+  const cleanPhone = clean.replace(/[^0-9]/g, '').slice(-10);
+
+  // Validate OTP (allow master 123456 or Firestore stored OTP)
+  let isValid = otp.trim() === '123456';
+  let userId: string | null = null;
+
+  const otpDoc = await getDoc(doc(firestore, 'otps', `reset_${cleanPhone}`));
+  if (otpDoc.exists()) {
+    const data = otpDoc.data();
+    if (data.otp === otp.trim() && data.expiresAt > Date.now()) {
+      isValid = true;
+      userId = data.userId;
+    }
+  }
+
+  // Also check if doc was stored under raw phone
+  if (!isValid) {
+    const rawOtpDoc = await getDoc(doc(firestore, 'otps', cleanPhone));
+    if (rawOtpDoc.exists()) {
+      const data = rawOtpDoc.data();
+      if (data.otp === otp.trim() && data.expiresAt > Date.now()) {
+        isValid = true;
+      }
+    }
+  }
+
+  if (!isValid) {
+    throw new Error('Invalid or expired verification OTP. Please check the code or request a new one.');
+  }
+
+  // Find user if not yet extracted
+  if (!userId) {
+    const usersRef = collection(firestore, 'users');
+    const allUsers = await getDocs(usersRef);
+    for (const d of allUsers.docs) {
+      const data = d.data();
+      const uPhone = (data.phone || '').replace(/[^0-9]/g, '').slice(-10);
+      const uEmail = (data.email || '').toLowerCase().trim();
+      if ((cleanPhone.length === 10 && uPhone === cleanPhone) || uEmail === clean) {
+        userId = d.id;
+        break;
+      }
+    }
+  }
+
+  if (!userId) {
+    throw new Error('User record could not be matched for password update.');
+  }
+
+  // Hash new password using bcrypt
+  const hashedPassword = bcrypt.hashSync(newPassword, 10);
+  await updateDoc(doc(firestore, 'users', userId), {
+    password: hashedPassword,
+    updatedAt: new Date().toISOString(),
+  });
+
+  // Clean up reset OTP
+  try {
+    await deleteDoc(doc(firestore, 'otps', `reset_${cleanPhone}`));
+    await deleteDoc(doc(firestore, 'otps', cleanPhone));
+  } catch {}
+
+  return {
+    success: true,
+    message: 'Your password has been successfully reset! You can now log in with your new password.',
   };
 }
 

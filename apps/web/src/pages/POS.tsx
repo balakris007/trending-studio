@@ -1057,6 +1057,7 @@ export const POS: React.FC = () => {
               >
                 {/* Header */}
                 <div className="text-center pb-2 border-b border-black">
+                  <img src="/logo.png" alt="Trending Studio" className="w-24 mx-auto mb-1 object-contain" />
                   <p className="font-black text-sm">TRENDING STUDIO</p>
                   <p className="text-[10px]">GIFTS & FRAMES</p>
                   <p className="text-[9px]">Karaikudi - 630001 | Phone: 79040-64446</p>

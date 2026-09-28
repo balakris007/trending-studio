@@ -3,7 +3,15 @@ import { IUser, IBranch, Role, Permission } from '@trending-studio/shared-types'
 import { api } from '../services/api';
 import { offlineDb } from '../services/offlineDb';
 
-import { loginWithFirestore, registerUserInFirestore } from '../services/firebaseClient';
+import {
+  loginWithFirestore,
+  registerUserInFirestore,
+  sendMobileOtp as fsSendMobileOtp,
+  verifyMobileOtpAndLogin as fsVerifyMobileOtpAndLogin,
+  loginWithGoogleAdmin as fsLoginWithGoogleAdmin,
+  requestPasswordResetOtp as fsRequestPasswordResetOtp,
+  resetUserPassword as fsResetUserPassword,
+} from '../services/firebaseClient';
 
 interface AuthContextType {
   user: IUser | null;
@@ -12,6 +20,11 @@ interface AuthContextType {
   isLoading: boolean;
   isOfflineMode: boolean;
   login: (identifier: string, password: string) => Promise<void>;
+  loginWithMobileOtp: (phone: string, otp: string) => Promise<void>;
+  sendMobileOtp: (phone: string) => Promise<{ success: boolean; otp: string; phone: string; userName?: string }>;
+  loginWithGoogle: () => Promise<void>;
+  requestPasswordResetOtp: (identifier: string) => Promise<{ success: boolean; otp: string; phone: string; userName: string }>;
+  resetUserPassword: (identifier: string, otp: string, newPassword: string) => Promise<{ success: boolean; message: string }>;
   registerUser: (userData: { name: string; email: string; phone: string; password: string; role?: Role }) => Promise<IUser>;
   loginOffline: (role?: 'admin' | 'billing') => Promise<void>;
   logout: () => Promise<void>;
@@ -73,11 +86,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     const initializeAuth = async () => {
+      // Security Policy: Every time the user opens the app (new browser tab / newly launched session),
+      // prompt for authentication. An active session exists only if ts_session_authenticated is true.
+      const isSessionActive = sessionStorage.getItem('ts_session_authenticated') === 'true';
       const token = localStorage.getItem('ts_access_token');
       const savedUser = localStorage.getItem('ts_user');
       const savedBranch = localStorage.getItem('ts_branch');
 
-      if (token) {
+      if (token && isSessionActive) {
         if (token.startsWith('ts_offline_') && savedUser) {
           try {
             setUser(JSON.parse(savedUser));
@@ -101,13 +117,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             try {
               setUser(JSON.parse(savedUser));
               if (savedBranch) setBranch(JSON.parse(savedBranch));
-              setIsOfflineMode(true);
+              setIsOfflineMode(false);
             } catch {}
-          } else {
-            localStorage.removeItem('ts_access_token');
-            localStorage.removeItem('ts_refresh_token');
           }
         }
+      } else {
+        // Fresh start: require authentication
+        setUser(null);
       }
       setIsLoading(false);
     };
@@ -140,6 +156,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       invoiceSequenceCounter: 100,
     };
 
+    sessionStorage.setItem('ts_session_authenticated', 'true');
     localStorage.setItem('ts_access_token', 'ts_offline_' + Date.now());
     localStorage.setItem('ts_user', JSON.stringify(offlineUser));
     localStorage.setItem('ts_branch', JSON.stringify(offlineBranch));
@@ -159,6 +176,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
       const { user: loggedInUser, branch: userBranch, tokens } = res.data.data;
+      sessionStorage.setItem('ts_session_authenticated', 'true');
       localStorage.setItem('ts_access_token', tokens.accessToken);
       localStorage.setItem('ts_refresh_token', tokens.refreshToken);
       localStorage.setItem('ts_user', JSON.stringify(loggedInUser));
@@ -175,6 +193,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // 2. Direct Cloud Firestore authentication (Primary for Firebase Hosting & GitHub Pages)
     try {
       const { user: fsUser, branch: fsBranch, tokens } = await loginWithFirestore(identifier, password);
+      sessionStorage.setItem('ts_session_authenticated', 'true');
       localStorage.setItem('ts_access_token', tokens.accessToken);
       localStorage.setItem('ts_refresh_token', tokens.refreshToken);
       localStorage.setItem('ts_user', JSON.stringify(fsUser));
@@ -198,6 +217,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const loginWithMobileOtp = async (phone: string, otp: string) => {
+    const { user: fsUser, branch: fsBranch, tokens } = await fsVerifyMobileOtpAndLogin(phone, otp);
+    sessionStorage.setItem('ts_session_authenticated', 'true');
+    localStorage.setItem('ts_access_token', tokens.accessToken);
+    localStorage.setItem('ts_refresh_token', tokens.refreshToken);
+    localStorage.setItem('ts_user', JSON.stringify(fsUser));
+    localStorage.setItem('ts_branch', JSON.stringify(fsBranch));
+    setUser(fsUser);
+    setBranch(fsBranch);
+    setIsOfflineMode(false);
+  };
+
+  const sendMobileOtp = async (phone: string) => {
+    return await fsSendMobileOtp(phone);
+  };
+
+  const loginWithGoogle = async () => {
+    const { user: gUser, branch: gBranch, tokens } = await fsLoginWithGoogleAdmin();
+    sessionStorage.setItem('ts_session_authenticated', 'true');
+    localStorage.setItem('ts_access_token', tokens.accessToken);
+    localStorage.setItem('ts_refresh_token', tokens.refreshToken);
+    localStorage.setItem('ts_user', JSON.stringify(gUser));
+    localStorage.setItem('ts_branch', JSON.stringify(gBranch));
+    setUser(gUser);
+    setBranch(gBranch);
+    setIsOfflineMode(false);
+  };
+
+  const requestPasswordResetOtp = async (identifier: string) => {
+    return await fsRequestPasswordResetOtp(identifier);
+  };
+
+  const resetUserPassword = async (identifier: string, otp: string, newPassword: string) => {
+    return await fsResetUserPassword(identifier, otp, newPassword);
+  };
+
   const registerUser = async (userData: { name: string; email: string; phone: string; password: string; role?: Role }): Promise<IUser> => {
     try {
       const res = await api.post('/auth/register', userData);
@@ -215,6 +270,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err) {
       // Ignore network errors on logout
     } finally {
+      sessionStorage.removeItem('ts_session_authenticated');
       localStorage.removeItem('ts_access_token');
       localStorage.removeItem('ts_refresh_token');
       setUser(null);
@@ -243,6 +299,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isLoading,
         isOfflineMode,
         login,
+        loginWithMobileOtp,
+        sendMobileOtp,
+        loginWithGoogle,
+        requestPasswordResetOtp,
+        resetUserPassword,
         registerUser,
         loginOffline,
         logout,

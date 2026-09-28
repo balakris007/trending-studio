@@ -133,9 +133,7 @@ export const MobileNav: React.FC<MobileNavProps> = ({ isDrawerOpen, setIsDrawerO
             {/* Drawer Header */}
             <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
               <div className="flex items-center space-x-2.5">
-                <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-pink-500 flex items-center justify-center shadow-md shadow-blue-500/20">
-                  <Sparkles className="w-4 h-4 text-white" />
-                </div>
+                <img src="/logo.png" alt="Trending Studio" className="h-9 w-auto object-contain shrink-0" />
                 <div>
                   <span className="font-bold text-sm text-white">
                     TRENDING <span className="text-blue-400">STUDIO</span>

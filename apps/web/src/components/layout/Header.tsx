@@ -80,9 +80,12 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMenu }) => {
           </button>
         )}
         <div className="flex items-center space-x-2.5">
-          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-pink-500 flex items-center justify-center shadow-lg shadow-blue-500/20 shrink-0">
-            <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
-          </div>
+          <img
+            src="/logo.png"
+            alt="Trending Studio"
+            className="h-10 sm:h-11 w-auto object-contain shrink-0 drop-shadow-md hover:scale-105 transition-transform cursor-pointer"
+            onClick={() => navigate('/')}
+          />
           <div>
             <div className="flex items-center space-x-2">
               <span className="font-bold text-sm sm:text-base md:text-lg tracking-wide text-white">
