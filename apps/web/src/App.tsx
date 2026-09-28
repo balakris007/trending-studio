@@ -44,7 +44,8 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 
 export const App: React.FC = () => {
   const base = import.meta.env.BASE_URL;
-  const basename = base && base.startsWith('/') && base !== '/' ? base : undefined;
+  const cleanBase = base ? base.replace(/\/$/, '') : '';
+  const basename = cleanBase && cleanBase !== '' ? cleanBase : undefined;
 
   return (
     <QueryClientProvider client={queryClient}>
