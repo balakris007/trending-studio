@@ -11,15 +11,19 @@ export const api = axios.create({
   timeout: 8000,
   headers: {
     'Content-Type': 'application/json',
+    'Bypass-Tunnel-Reminder': 'true',
   },
 });
 
 // Request interceptor to attach JWT token
 api.interceptors.request.use((config) => {
   config.baseURL = getApiBaseUrl();
-  const token = localStorage.getItem('ts_access_token');
-  if (token && config.headers) {
-    config.headers.Authorization = `Bearer ${token}`;
+  if (config.headers) {
+    config.headers['Bypass-Tunnel-Reminder'] = 'true';
+    const token = localStorage.getItem('ts_access_token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
   }
   return config;
 });
