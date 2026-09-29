@@ -222,6 +222,30 @@ export async function registerUserInFirestore(userData: {
 
   await setDoc(doc(firestore, 'users', userId), newUser);
 
+  // Auto-sync new staff registration to Google Sheets Users tab if webhook is configured
+  try {
+    const settingsSnap = await getDoc(doc(firestore, 'business_settings', 'default'));
+    const webhookUrl = settingsSnap.exists() ? settingsSnap.data()?.googleSheetsConfig?.webhookUrl : null;
+    const apiKey = settingsSnap.exists() ? settingsSnap.data()?.googleSheetsConfig?.apiKey : null;
+    if (webhookUrl) {
+      insertIntoGoogleSheets(
+        webhookUrl,
+        'Users' as any,
+        {
+          _id: userId,
+          id: userId,
+          name: newUser.name,
+          email: newUser.email,
+          phone: newUser.phone,
+          role: newUser.role,
+          isActive: true,
+          createdAt: newUser.createdAt,
+        },
+        apiKey
+      ).catch((err) => console.warn('[GoogleSheets] User insert notice:', err));
+    }
+  } catch {}
+
   return {
     _id: userId,
     name: newUser.name,
@@ -1145,6 +1169,7 @@ function testConnection() {
   getOrCreateSheet(ss, 'Invoices');
   getOrCreateSheet(ss, 'Products');
   getOrCreateSheet(ss, 'Customers');
+  getOrCreateSheet(ss, 'Users');
   Logger.log('✅ Success! Connected directly to Google Sheet: "' + ss.getName() + '" (ID: ' + ss.getId() + ')');
   return 'Connected to ' + ss.getName() + ' (' + ss.getId() + ')';
 }
@@ -1193,6 +1218,9 @@ function doGet(e) {
       }
       if (requestedTable === 'all' || requestedTable === 'Customers' || requestedTable === 'customers') {
         result.customers = readSheetAsJson(ss, 'Customers');
+      }
+      if (requestedTable === 'all' || requestedTable === 'Users' || requestedTable === 'users' || requestedTable === 'Staff') {
+        result.users = readSheetAsJson(ss, 'Users');
       }
 
       var jsonOutput = JSON.stringify({
@@ -1287,6 +1315,7 @@ function getStandardSheetName(type) {
   if (upper.indexOf('INV') !== -1) return 'Invoices';
   if (upper.indexOf('PROD') !== -1) return 'Products';
   if (upper.indexOf('CUST') !== -1) return 'Customers';
+  if (upper.indexOf('USER') !== -1 || upper.indexOf('STAFF') !== -1) return 'Users';
   if (upper.indexOf('ORD') !== -1) return 'Orders';
   return type;
 }
@@ -1310,6 +1339,8 @@ function formatSheetHeaders(sheet, sheetName) {
     headers = ['SKU', 'Product Name', 'Category', 'Selling Price', 'Purchase Price', 'Stock', 'ID', 'Last Updated'];
   } else if (sheetName === 'Customers') {
     headers = ['Mobile', 'Customer Name', 'City', 'Total Spent (INR)', 'Pending Balance', 'ID', 'Last Updated'];
+  } else if (sheetName === 'Users' || sheetName === 'Staff') {
+    headers = ['User ID', 'Full Name', 'Email', 'Phone', 'Role', 'Status', 'Registered Date', 'Last Updated'];
   } else {
     headers = ['ID', 'Data', 'Created At', 'Status'];
   }
@@ -1419,6 +1450,17 @@ function buildRowArray(sheetName, item) {
       item._id || item.id || '',
       now
     ];
+  } else if (sheetName === 'Users' || sheetName === 'Staff') {
+    return [
+      item._id || item.id || '',
+      item.name || '',
+      item.email || '',
+      item.phone || '',
+      item.role || 'BILLING_STAFF',
+      item.isActive !== false ? 'ACTIVE' : 'INACTIVE',
+      item.createdAt || now,
+      now
+    ];
   }
   return [item._id || item.id || '', JSON.stringify(item), now, 'ACTIVE'];
 }
@@ -1470,6 +1512,18 @@ function readSheetAsJson(ss, sheetName) {
         _id: String(row[5] || row[0] || ''),
         id: String(row[5] || row[0] || '')
       };
+    } else if (sheetName === 'Users' || sheetName === 'Staff') {
+      obj = {
+        _id: String(row[0] || ''),
+        id: String(row[0] || ''),
+        name: String(row[1] || ''),
+        email: String(row[2] || ''),
+        phone: String(row[3] || ''),
+        role: String(row[4] || 'BILLING_STAFF'),
+        isActive: String(row[5] || '').toUpperCase() === 'ACTIVE',
+        createdAt: row[6] ? String(row[6]) : '',
+        updatedAt: row[7] ? String(row[7]) : ''
+      };
     } else {
       obj = { _id: String(row[0] || ''), data: row[1] };
     }
@@ -1493,6 +1547,11 @@ function handleFullSync(ss, data) {
     var custSheet = getOrCreateSheet(ss, 'Customers');
     formatSheetHeaders(custSheet, 'Customers');
     handleInsert(custSheet, 'Customers', data.customers);
+  }
+  if (data.users && data.users.length > 0) {
+    var usrSheet = getOrCreateSheet(ss, 'Users');
+    formatSheetHeaders(usrSheet, 'Users');
+    handleInsert(usrSheet, 'Users', data.users);
   }
 }
 

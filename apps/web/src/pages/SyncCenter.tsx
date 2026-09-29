@@ -322,23 +322,24 @@ export const SyncCenter: React.FC = () => {
       } as any);
 
       if (cleanWebhook) {
-        // Immediately push all existing invoices, customers, and products to Google Sheets with API Key
+        // Immediately push all existing invoices, customers, products, and users to Google Sheets with API Key
         const allInvoices = await offlineDb.getOfflineInvoices();
         const allCusts = await offlineDb.getCachedCustomers();
         const allProds = await offlineDb.getCachedProducts();
+        const allUsers = await fsClient.getFirestoreUsers();
 
         await fsClient.syncToGoogleSheetsWebhook(
           cleanWebhook,
           {
             type: 'FULL_SYNC',
-            data: { invoices: allInvoices, customers: allCusts, products: allProds },
+            data: { invoices: allInvoices, customers: allCusts, products: allProds, users: allUsers },
             apiKey: key,
           },
           key
         );
 
         setWebhookMsg(
-          `✅ Successfully connected! Pushed ${allInvoices.length} invoices, ${allCusts.length} customers, and ${allProds.length} products to your Google Sheet!`
+          `✅ Successfully connected! Pushed ${allInvoices.length} invoices, ${allCusts.length} customers, ${allProds.length} products, and ${allUsers.length} staff users to your Google Sheet!`
         );
       } else {
         setWebhookMsg(

@@ -111,12 +111,14 @@ class SyncManager {
         try {
           const settings: any = await dataService.getSettings();
           if (settings?.googleSheetsConfig?.webhookUrl && settings.googleSheetsConfig.enabled !== false) {
+            const fsUsers = await fsClient.getFirestoreUsers();
             await fsClient.syncToGoogleSheetsWebhook(settings.googleSheetsConfig.webhookUrl, {
               type: 'FULL_SYNC',
               data: {
                 invoices: allLocalInvoices,
                 customers: await offlineDb.getCachedCustomers(),
                 products: await offlineDb.getCachedProducts(),
+                users: fsUsers,
               },
             });
           }
@@ -247,9 +249,10 @@ class SyncManager {
 
       if (webhookUrl) {
         try {
+          const fsUsers = await fsClient.getFirestoreUsers();
           const sheetRes = await fsClient.syncToGoogleSheetsWebhook(webhookUrl, {
             type: 'FULL_SYNC',
-            data: { invoices, customers, products },
+            data: { invoices, customers, products, users: fsUsers },
           });
           sheetsSynced = sheetRes.success;
           sheetsMessage = sheetRes.message || 'Pushed to Google Sheets Webhook successfully!';
