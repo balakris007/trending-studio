@@ -48,6 +48,14 @@ export interface IUser {
   permissions?: Permission[];
   branchId?: string;
   isActive: boolean;
+  address?: string;
+  idProofType?: 'AADHAAR' | 'PAN' | 'VOTER_ID' | 'DRIVING_LICENSE' | 'PASSPORT' | string;
+  idProofNumber?: string;
+  idProofImageUrl?: string;
+  photoUrl?: string;
+  salary?: number;
+  emergencyContact?: string;
+  joiningDate?: string;
   lastLogin?: string;
   createdAt?: string;
   updatedAt?: string;

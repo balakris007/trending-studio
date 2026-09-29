@@ -29,6 +29,8 @@ import {
   IProduct,
   IBusinessSettings,
   IPhotoPrintSizePrice,
+  IFrameType,
+  IFramePriceConfig,
 } from '@trending-studio/shared-types';
 
 export const firebaseConfig = {
@@ -604,21 +606,89 @@ export async function getFirestoreUsers(): Promise<IUser[]> {
     return snap.docs.map((d) => {
       const data = d.data();
       return {
+        ...data,
         _id: d.id,
         id: d.id,
-        name: data.name,
-        email: data.email,
-        phone: data.phone,
-        role: data.role,
+        name: data.name || '',
+        email: data.email || '',
+        phone: data.phone || '',
+        role: data.role || Role.BILLING_STAFF,
         permissions: data.permissions || [],
-        branchId: data.branchId,
+        branchId: data.branchId || 'branch_kkdi_main',
         isActive: data.isActive !== false,
+        address: data.address || '',
+        idProofType: data.idProofType || '',
+        idProofNumber: data.idProofNumber || '',
+        idProofImageUrl: data.idProofImageUrl || '',
+        photoUrl: data.photoUrl || '',
+        salary: data.salary || 0,
+        emergencyContact: data.emergencyContact || '',
+        joiningDate: data.joiningDate || data.createdAt || '',
+        createdAt: data.createdAt || '',
+        updatedAt: data.updatedAt || '',
       } as IUser;
     });
   } catch (err) {
     console.warn('[Firestore] getFirestoreUsers error:', err);
     return [];
   }
+}
+
+export async function updateUserInFirestore(userId: string, updates: Partial<IUser>): Promise<IUser> {
+  const userRef = doc(firestore, 'users', userId);
+  const cleanUpdates = sanitizeForFirestore({
+    ...updates,
+    updatedAt: new Date().toISOString(),
+  });
+  // Do not overwrite password unless specifically provided
+  delete (cleanUpdates as any).password;
+  await updateDoc(userRef, cleanUpdates);
+
+  // Sync to Google Sheets Users tab if webhook configured
+  try {
+    const settingsSnap = await getDoc(doc(firestore, 'business_settings', 'default_business'));
+    const webhookUrl = settingsSnap.exists() ? settingsSnap.data()?.googleSheetsConfig?.webhookUrl : null;
+    const apiKey = settingsSnap.exists() ? settingsSnap.data()?.googleSheetsConfig?.apiKey : null;
+    if (webhookUrl) {
+      const userSnap = await getDoc(userRef);
+      if (userSnap.exists()) {
+        const fullUser = userSnap.data();
+        updateInGoogleSheets(
+          webhookUrl,
+          'Users' as any,
+          {
+            _id: userId,
+            id: userId,
+            name: fullUser.name,
+            email: fullUser.email,
+            phone: fullUser.phone,
+            role: fullUser.role,
+            isActive: fullUser.isActive !== false,
+            createdAt: fullUser.createdAt,
+          },
+          userId,
+          apiKey
+        ).catch(() => {});
+      }
+    }
+  } catch {}
+
+  const snap = await getDoc(userRef);
+  return { ...snap.data(), _id: userId, id: userId } as IUser;
+}
+
+export async function deleteUserFromFirestore(userId: string): Promise<void> {
+  await deleteDoc(doc(firestore, 'users', userId));
+
+  // Sync deletion to Google Sheets
+  try {
+    const settingsSnap = await getDoc(doc(firestore, 'business_settings', 'default_business'));
+    const webhookUrl = settingsSnap.exists() ? settingsSnap.data()?.googleSheetsConfig?.webhookUrl : null;
+    const apiKey = settingsSnap.exists() ? settingsSnap.data()?.googleSheetsConfig?.apiKey : null;
+    if (webhookUrl) {
+      deleteFromGoogleSheets(webhookUrl, 'Users' as any, { id: userId, key: 'ID' }, apiKey).catch(() => {});
+    }
+  } catch {}
 }
 
 // ----------------------------------------------------------------------
@@ -843,14 +913,132 @@ export async function savePhotoPrintPriceToFirestore(size: string, basePrice: nu
   );
 }
 
-export async function getFirestoreFramePrices(): Promise<any[]> {
+// Frame Types Seed Matrix
+export const DEFAULT_FRAME_TYPES: IFrameType[] = [
+  {
+    id: 'frm_teak_synthetic',
+    code: 'FRM_TEAK',
+    name: 'Teak Synthetic Matte',
+    mouldingWidthInches: 1.5,
+    ratePerInch: 6.5,
+    ratePerSqInch: 0.45,
+    imageUrl: 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=300&q=80',
+    isActive: true,
+  },
+  {
+    id: 'frm_royal_gold',
+    code: 'FRM_GOLD',
+    name: 'Royal Gold Carved Ornate',
+    mouldingWidthInches: 2.0,
+    ratePerInch: 8.5,
+    ratePerSqInch: 0.55,
+    imageUrl: 'https://images.unsplash.com/photo-1549887552-cb1071d3e5ca?w=300&q=80',
+    isActive: true,
+  },
+  {
+    id: 'frm_matte_black_box',
+    code: 'FRM_BLACK_BOX',
+    name: 'Minimalist Matte Black Box',
+    mouldingWidthInches: 1.25,
+    ratePerInch: 7.0,
+    ratePerSqInch: 0.45,
+    imageUrl: 'https://images.unsplash.com/photo-1582561424760-0321d75e81fa?w=300&q=80',
+    isActive: true,
+  },
+  {
+    id: 'frm_nordic_white',
+    code: 'FRM_WHITE',
+    name: 'Nordic Clean Studio White',
+    mouldingWidthInches: 1.0,
+    ratePerInch: 6.0,
+    ratePerSqInch: 0.45,
+    imageUrl: 'https://images.unsplash.com/photo-1513519245088-0e12902e5a38?w=300&q=80',
+    isActive: true,
+  },
+  {
+    id: 'frm_rustic_walnut',
+    code: 'FRM_WALNUT',
+    name: 'Rustic Walnut Natural Grain',
+    mouldingWidthInches: 2.25,
+    ratePerInch: 9.5,
+    ratePerSqInch: 0.6,
+    imageUrl: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?w=300&q=80',
+    isActive: true,
+  },
+  {
+    id: 'frm_floating_canvas',
+    code: 'FRM_FLOAT',
+    name: 'Floating Canvas Gallery Shadow',
+    mouldingWidthInches: 1.75,
+    ratePerInch: 11.0,
+    ratePerSqInch: 0.75,
+    imageUrl: 'https://images.unsplash.com/photo-1579783902614-a3fb3927b675?w=300&q=80',
+    isActive: true,
+  },
+];
+
+export async function getFirestoreFrameTypes(): Promise<IFrameType[]> {
+  try {
+    const snap = await getDocs(collection(firestore, 'frame_types'));
+    if (snap.empty) {
+      // Seed default frame types
+      for (const item of DEFAULT_FRAME_TYPES) {
+        await setDoc(doc(firestore, 'frame_types', item.id), item);
+      }
+      return DEFAULT_FRAME_TYPES;
+    }
+    return snap.docs.map((d) => ({ ...d.data(), _id: d.id, id: d.id })) as IFrameType[];
+  } catch (err) {
+    console.warn('[Firestore] getFirestoreFrameTypes error:', err);
+    return DEFAULT_FRAME_TYPES;
+  }
+}
+
+export async function saveFrameTypeToFirestore(frameType: Partial<IFrameType>): Promise<IFrameType> {
+  const id = frameType.id || frameType._id || `frm_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const clean = {
+    ...frameType,
+    id,
+    _id: id,
+    code: (frameType.code || 'FRM_CUSTOM').toUpperCase(),
+    name: frameType.name || 'Custom Frame',
+    mouldingWidthInches: Number(frameType.mouldingWidthInches) || 1.0,
+    ratePerInch: Number(frameType.ratePerInch) || 6.5,
+    isActive: frameType.isActive !== false,
+    updatedAt: new Date().toISOString(),
+  };
+  await setDoc(doc(firestore, 'frame_types', id), clean, { merge: true });
+  return clean as IFrameType;
+}
+
+export async function deleteFrameTypeFromFirestore(id: string): Promise<void> {
+  await deleteDoc(doc(firestore, 'frame_types', id));
+}
+
+export async function getFirestoreFramePrices(): Promise<IFramePriceConfig[]> {
   try {
     const snap = await getDocs(collection(firestore, 'frame_prices'));
-    return snap.docs.map((d) => ({ ...d.data(), _id: d.id, id: d.id }));
+    return snap.docs.map((d) => ({ ...d.data(), _id: d.id, id: d.id })) as IFramePriceConfig[];
   } catch (err) {
     console.warn('[Firestore] getFirestoreFramePrices error:', err);
     return [];
   }
+}
+
+export async function saveFramePriceToFirestore(framePrice: Partial<IFramePriceConfig>): Promise<IFramePriceConfig> {
+  const id = framePrice.id || framePrice._id || `fp_${Date.now()}`;
+  const clean = {
+    ...framePrice,
+    id,
+    _id: id,
+    updatedAt: new Date().toISOString(),
+  };
+  await setDoc(doc(firestore, 'frame_prices', id), clean, { merge: true });
+  return clean as IFramePriceConfig;
+}
+
+export async function deleteFramePriceFromFirestore(id: string): Promise<void> {
+  await deleteDoc(doc(firestore, 'frame_prices', id));
 }
 
 // ----------------------------------------------------------------------
@@ -1661,5 +1849,204 @@ export async function registerDeviceInFirestore(device: any): Promise<any> {
 export async function updateDeviceStatusInFirestore(deviceId: string, isRevoked: boolean): Promise<void> {
   const devRef = doc(firestore, 'devices', deviceId);
   await setDoc(devRef, { isRevoked, updatedAt: new Date().toISOString() }, { merge: true });
+}
+
+export async function deleteDeviceFromFirestore(deviceId: string): Promise<void> {
+  await deleteDoc(doc(firestore, 'devices', deviceId));
+}
+
+// ----------------------------------------------------------------------
+// 10. Backup & Disaster Recovery Snapshots in Cloud Firestore
+// ----------------------------------------------------------------------
+
+export async function createFullBackupSnapshot(): Promise<{
+  metadata: {
+    id: string;
+    filename: string;
+    createdAt: string;
+    version: string;
+    totalRecords: number;
+    counts: Record<string, number>;
+  };
+  data: any;
+}> {
+  const [
+    invoices,
+    customers,
+    products,
+    users,
+    frameTypes,
+    framePrices,
+    photoPrintPrices,
+    orders,
+    devices,
+    settings,
+  ] = await Promise.all([
+    getFirestoreInvoices(500),
+    getFirestoreCustomers(),
+    getFirestoreProducts(),
+    getFirestoreUsers(),
+    getFirestoreFrameTypes(),
+    getFirestoreFramePrices(),
+    getFirestorePhotoPrintPrices(),
+    getFirestoreOrders(),
+    getFirestoreDevices(),
+    getFirestoreSettings(),
+  ]);
+
+  // Strip password hash from backup data for safety
+  const safeUsers = users.map((u: any) => {
+    const { password, ...rest } = u;
+    return rest;
+  });
+
+  const counts: Record<string, number> = {
+    invoices: invoices.length,
+    customers: customers.length,
+    products: products.length,
+    users: safeUsers.length,
+    frameTypes: frameTypes.length,
+    framePrices: framePrices.length,
+    photoPrintPrices: photoPrintPrices.length,
+    orders: orders.length,
+    devices: devices.length,
+  };
+
+  const totalRecords = Object.values(counts).reduce((a, b) => a + b, 0);
+  const now = new Date();
+  const timestampStr = now.toISOString().replace(/[:.]/g, '-');
+  const backupId = `bkp_${Date.now()}`;
+  const filename = `trending-studio-backup-${timestampStr}.json`;
+
+  const metadata = {
+    id: backupId,
+    filename,
+    createdAt: now.toISOString(),
+    version: '2.2.0',
+    totalRecords,
+    counts,
+  };
+
+  const snapshot = {
+    metadata,
+    data: {
+      invoices,
+      customers,
+      products,
+      users: safeUsers,
+      frameTypes,
+      framePrices,
+      photoPrintPrices,
+      orders,
+      devices,
+      settings,
+    },
+  };
+
+  // Log backup event in Cloud Firestore
+  try {
+    await setDoc(doc(firestore, 'backups', backupId), metadata);
+  } catch (err) {
+    console.warn('[Firestore] Failed to log backup metadata:', err);
+  }
+
+  return snapshot;
+}
+
+export async function getFirestoreBackups(): Promise<any[]> {
+  try {
+    const snap = await getDocs(collection(firestore, 'backups'));
+    return snap.docs
+      .map((d) => ({ ...d.data(), _id: d.id, id: d.id }))
+      .sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+  } catch (err) {
+    console.warn('[Firestore] getFirestoreBackups error:', err);
+    return [];
+  }
+}
+
+export async function restoreBackupSnapshot(
+  snapshot: any
+): Promise<{ success: boolean; restoredCounts: Record<string, number> }> {
+  if (!snapshot || !snapshot.data) {
+    throw new Error('Invalid backup file format: missing "data" container.');
+  }
+
+  const data = snapshot.data;
+  const restoredCounts: Record<string, number> = {
+    invoices: 0,
+    customers: 0,
+    products: 0,
+    frameTypes: 0,
+    photoPrintPrices: 0,
+    devices: 0,
+  };
+
+  // 1. Restore Products
+  if (Array.isArray(data.products)) {
+    for (const p of data.products) {
+      if (p.name || p.sku || p._id || p.id) {
+        await saveProductToFirestore(p);
+        restoredCounts.products++;
+      }
+    }
+  }
+
+  // 2. Restore Customers
+  if (Array.isArray(data.customers)) {
+    for (const c of data.customers) {
+      if (c.name || c.mobile || c._id || c.id) {
+        await saveCustomerToFirestore(c);
+        restoredCounts.customers++;
+      }
+    }
+  }
+
+  // 3. Restore Invoices
+  if (Array.isArray(data.invoices)) {
+    for (const inv of data.invoices) {
+      if (inv.invoiceNumber || inv._id || inv.id) {
+        await saveInvoiceToFirestore(inv);
+        restoredCounts.invoices++;
+      }
+    }
+  }
+
+  // 4. Restore Frame Types
+  if (Array.isArray(data.frameTypes)) {
+    for (const ft of data.frameTypes) {
+      if (ft.name || ft.code) {
+        await saveFrameTypeToFirestore(ft);
+        restoredCounts.frameTypes++;
+      }
+    }
+  }
+
+  // 5. Restore Photo Print Prices
+  if (Array.isArray(data.photoPrintPrices)) {
+    for (const pp of data.photoPrintPrices) {
+      if (pp.size && pp.basePrice !== undefined) {
+        await savePhotoPrintPriceToFirestore(pp.size, pp.basePrice);
+        restoredCounts.photoPrintPrices++;
+      }
+    }
+  }
+
+  // 6. Restore Devices
+  if (Array.isArray(data.devices)) {
+    for (const dev of data.devices) {
+      if (dev.deviceId || dev.name || dev._id) {
+        await registerDeviceInFirestore(dev);
+        restoredCounts.devices++;
+      }
+    }
+  }
+
+  // 7. Restore Settings if present
+  if (data.settings && Object.keys(data.settings).length > 0) {
+    await saveSettingsToFirestore(data.settings);
+  }
+
+  return { success: true, restoredCounts };
 }
 

@@ -6,6 +6,9 @@ import {
   ICustomer,
   IBusinessSettings,
   IPhotoPrintSizePrice,
+  IUser,
+  IFrameType,
+  IFramePriceConfig,
 } from '@trending-studio/shared-types';
 
 export const dataService = {
@@ -480,5 +483,116 @@ export const dataService = {
     } catch (apiErr) {
       await fsClient.updateDeviceStatusInFirestore(deviceId, isRevoked);
     }
+  },
+
+  async deleteDevice(deviceId: string): Promise<void> {
+    try {
+      await api.delete(`/devices/${deviceId}`);
+    } catch (apiErr) {
+      await fsClient.deleteDeviceFromFirestore(deviceId);
+    }
+  },
+
+  // ----------------------------------------------------------------------
+  // Frame Master & Pricing
+  // ----------------------------------------------------------------------
+  async getFrameTypes(): Promise<IFrameType[]> {
+    try {
+      const res = await api.get('/frames/types');
+      return res.data.data || [];
+    } catch (apiErr) {
+      return await fsClient.getFirestoreFrameTypes();
+    }
+  },
+
+  async saveFrameType(frameType: Partial<IFrameType>): Promise<IFrameType> {
+    try {
+      const res = await api.post('/frames/types', frameType);
+      return res.data.data;
+    } catch (apiErr) {
+      return await fsClient.saveFrameTypeToFirestore(frameType);
+    }
+  },
+
+  async deleteFrameType(id: string): Promise<void> {
+    try {
+      await api.delete(`/frames/types/${id}`);
+    } catch (apiErr) {
+      await fsClient.deleteFrameTypeFromFirestore(id);
+    }
+  },
+
+  async getFramePrices(): Promise<IFramePriceConfig[]> {
+    try {
+      const res = await api.get('/frames/prices');
+      return res.data.data || [];
+    } catch (apiErr) {
+      return await fsClient.getFirestoreFramePrices();
+    }
+  },
+
+  async saveFramePrice(price: Partial<IFramePriceConfig>): Promise<IFramePriceConfig> {
+    try {
+      const res = await api.post('/frames/prices', price);
+      return res.data.data;
+    } catch (apiErr) {
+      return await fsClient.saveFramePriceToFirestore(price);
+    }
+  },
+
+  async deleteFramePrice(id: string): Promise<void> {
+    try {
+      await api.delete(`/frames/prices/${id}`);
+    } catch (apiErr) {
+      await fsClient.deleteFramePriceFromFirestore(id);
+    }
+  },
+
+  // ----------------------------------------------------------------------
+  // Employees & Staff Management
+  // ----------------------------------------------------------------------
+  async getEmployees(): Promise<IUser[]> {
+    try {
+      const res = await api.get('/users');
+      return res.data.data || [];
+    } catch (apiErr) {
+      return await fsClient.getFirestoreUsers();
+    }
+  },
+
+  async saveEmployee(employeeData: any): Promise<IUser> {
+    return await fsClient.registerUserInFirestore(employeeData);
+  },
+
+  async updateEmployee(userId: string, updates: Partial<IUser>): Promise<IUser> {
+    try {
+      const res = await api.patch(`/users/${userId}`, updates);
+      return res.data.data;
+    } catch (apiErr) {
+      return await fsClient.updateUserInFirestore(userId, updates);
+    }
+  },
+
+  async deleteEmployee(userId: string): Promise<void> {
+    try {
+      await api.delete(`/users/${userId}`);
+    } catch (apiErr) {
+      await fsClient.deleteUserFromFirestore(userId);
+    }
+  },
+
+  // ----------------------------------------------------------------------
+  // Backups & Snapshots
+  // ----------------------------------------------------------------------
+  async createFullBackup(): Promise<any> {
+    return await fsClient.createFullBackupSnapshot();
+  },
+
+  async restoreBackup(snapshot: any): Promise<{ success: boolean; restoredCounts: Record<string, number> }> {
+    return await fsClient.restoreBackupSnapshot(snapshot);
+  },
+
+  async getBackups(): Promise<any[]> {
+    return await fsClient.getFirestoreBackups();
   },
 };

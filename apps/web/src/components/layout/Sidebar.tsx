@@ -15,6 +15,7 @@ import {
   Smartphone,
   Settings,
   Database,
+  UserCheck,
 } from 'lucide-react';
 import { Role } from '@trending-studio/shared-types';
 
@@ -27,6 +28,7 @@ export const Sidebar: React.FC = () => {
     { label: 'Invoices', path: '/invoices', icon: FileText },
     { label: 'Studio Orders', path: '/orders', icon: KanbanSquare },
     { label: 'Customers', path: '/customers', icon: Users },
+    { label: 'Employees', path: '/employees', icon: UserCheck, roles: [Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER] },
     { label: 'Products & Stock', path: '/products', icon: Package },
     { label: 'Photo Prints', path: '/photo-prints', icon: Image },
     { label: 'Frame Master', path: '/frames', icon: SquareCode },

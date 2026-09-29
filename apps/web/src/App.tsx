@@ -14,6 +14,10 @@ import { PhotoPrintPricing } from './pages/PhotoPrintPricing';
 import { Reports } from './pages/Reports';
 import { SyncCenter } from './pages/SyncCenter';
 import { Settings } from './pages/Settings';
+import { FrameMaster } from './pages/FrameMaster';
+import { Devices } from './pages/Devices';
+import { Backups } from './pages/Backups';
+import { Employees } from './pages/Employees';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -116,6 +120,10 @@ export const App: React.FC = () => {
               <Route path="customers" element={<Customers />} />
               <Route path="products" element={<Products />} />
               <Route path="photo-prints" element={<PhotoPrintPricing />} />
+              <Route path="frames" element={<FrameMaster />} />
+              <Route path="employees" element={<Employees />} />
+              <Route path="devices" element={<Devices />} />
+              <Route path="backups" element={<Backups />} />
               <Route path="reports" element={<Reports />} />
               <Route path="sync" element={<SyncCenter />} />
               <Route path="settings" element={<Settings />} />
