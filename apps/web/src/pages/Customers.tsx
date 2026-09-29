@@ -19,6 +19,7 @@ export const Customers: React.FC = () => {
     name: '',
     mobile: '',
     whatsapp: '',
+    isWhatsappSameAsMobile: true,
     address: '',
     city: 'Karaikudi',
     gstin: '',
@@ -53,12 +54,23 @@ export const Customers: React.FC = () => {
   const handleCreateCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await dataService.saveCustomer(formData);
+      const finalWhatsapp = formData.isWhatsappSameAsMobile
+        ? formData.mobile.trim()
+        : (formData.whatsapp.trim() || formData.mobile.trim());
+
+      await dataService.saveCustomer({
+        ...formData,
+        name: formData.name.trim(),
+        mobile: formData.mobile.trim(),
+        whatsapp: finalWhatsapp,
+        address: formData.address.trim(),
+      });
       setShowAddModal(false);
       setFormData({
         name: '',
         mobile: '',
         whatsapp: '',
+        isWhatsappSameAsMobile: true,
         address: '',
         city: 'Karaikudi',
         gstin: '',
@@ -126,9 +138,19 @@ export const Customers: React.FC = () => {
                     <p className="font-bold text-white">{c.name}</p>
                     {c.gstin && <p className="font-mono text-[10px] text-blue-400">GST: {c.gstin}</p>}
                   </td>
-                  <td className="px-4 py-3 font-mono text-slate-300">{c.mobile}</td>
+                  <td className="px-4 py-3">
+                    <div className="font-mono text-slate-300 flex items-center space-x-1">
+                      <span>📱 {c.mobile}</span>
+                    </div>
+                    {c.whatsapp && (
+                      <div className="font-mono text-[10px] text-emerald-400 flex items-center space-x-1 mt-0.5">
+                        <span>💬 {c.whatsapp}</span>
+                      </div>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-slate-400">
-                    {c.city || 'Karaikudi'}
+                    <p className="line-clamp-1 text-slate-200">{c.address || c.city || 'Karaikudi'}</p>
+                    {c.address && c.city && <p className="text-[10px] text-slate-500">{c.city}</p>}
                   </td>
                   <td className="px-4 py-3">
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-slate-300">
@@ -187,50 +209,105 @@ export const Customers: React.FC = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Mobile *</label>
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Mobile Number (10 Digits) *</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-2 text-xs text-slate-400 font-mono">+91</span>
                   <input
                     type="tel"
                     required
-                    placeholder="10 Digits"
+                    maxLength={10}
+                    placeholder="7904064446"
                     value={formData.mobile}
-                    onChange={(e) => setFormData({ ...formData, mobile: e.target.value })}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/[^0-9]/g, '');
+                      setFormData((prev) => ({
+                        ...prev,
+                        mobile: val,
+                        whatsapp: prev.isWhatsappSameAsMobile ? val : prev.whatsapp,
+                      }));
+                    }}
+                    className="w-full pl-11 pr-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white font-mono placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              {/* WhatsApp Checkbox Option */}
+              <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 space-y-2">
+                <label className="flex items-center space-x-2 text-xs text-slate-300 font-medium cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.isWhatsappSameAsMobile}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setFormData((prev) => ({
+                        ...prev,
+                        isWhatsappSameAsMobile: checked,
+                        whatsapp: checked ? prev.mobile : prev.whatsapp,
+                      }));
+                    }}
+                    className="w-4 h-4 rounded text-emerald-500 focus:ring-emerald-400 accent-emerald-500 cursor-pointer"
+                  />
+                  <span>Mobile number is also WhatsApp number</span>
+                </label>
+
+                {!formData.isWhatsappSameAsMobile && (
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                      WhatsApp Number (Different)
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-2 text-xs text-slate-400 font-mono">+91</span>
+                      <input
+                        type="tel"
+                        maxLength={10}
+                        placeholder="WhatsApp 10 digits"
+                        value={formData.whatsapp}
+                        onChange={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            whatsapp: e.target.value.replace(/[^0-9]/g, ''),
+                          }))
+                        }
+                        className="w-full pl-11 pr-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white font-mono placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Customer Address / Street</label>
+                <textarea
+                  rows={2}
+                  placeholder="e.g. 14/B Sekkalai Road, Karaikudi"
+                  value={formData.address}
+                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">City</label>
+                  <input
+                    type="text"
+                    placeholder="Karaikudi"
+                    value={formData.city}
+                    onChange={(e) => setFormData({ ...formData, city: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">WhatsApp</label>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">GSTIN (Optional)</label>
                   <input
-                    type="tel"
-                    placeholder="Optional"
-                    value={formData.whatsapp}
-                    onChange={(e) => setFormData({ ...formData, whatsapp: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white"
+                    type="text"
+                    placeholder="33XXXXX1234X1ZX"
+                    value={formData.gstin}
+                    onChange={(e) => setFormData({ ...formData, gstin: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white font-mono"
                   />
                 </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">GSTIN (for B2B bills)</label>
-                <input
-                  type="text"
-                  placeholder="33XXXXX1234X1ZX"
-                  value={formData.gstin}
-                  onChange={(e) => setFormData({ ...formData, gstin: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Address & City</label>
-                <input
-                  type="text"
-                  placeholder="Karaikudi"
-                  value={formData.address}
-                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white"
-                />
               </div>
 
               <button

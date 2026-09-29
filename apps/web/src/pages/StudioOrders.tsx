@@ -151,10 +151,20 @@ export const StudioOrders: React.FC = () => {
 
                       <div>
                         <h4 className="font-semibold text-xs text-white">{order.customerName}</h4>
-                        <p className="text-[10px] text-slate-400 font-mono flex items-center space-x-1">
-                          <Phone className="w-3 h-3 inline mr-1 text-slate-500" />
-                          <span>{order.customerMobile}</span>
-                        </p>
+                        <div className="flex items-center space-x-2 text-[10px] text-slate-400 font-mono">
+                          <span className="flex items-center">
+                            <Phone className="w-3 h-3 inline mr-0.5 text-slate-500" />
+                            {order.customerMobile}
+                          </span>
+                          {order.customerWhatsapp && order.customerWhatsapp !== order.customerMobile && (
+                            <span className="text-emerald-400">💬 {order.customerWhatsapp}</span>
+                          )}
+                        </div>
+                        {order.customerAddress && (
+                          <p className="text-[10px] text-slate-400 truncate mt-0.5" title={order.customerAddress}>
+                            📍 {order.customerAddress}
+                          </p>
+                        )}
                       </div>
 
                       {/* Items Preview */}
@@ -223,10 +233,42 @@ export const StudioOrders: React.FC = () => {
             </div>
 
             <div className="space-y-3 text-xs">
-              <div className="p-3 bg-slate-950 rounded-xl">
-                <p className="font-bold text-white">{selectedOrder.customerName}</p>
-                <p className="text-slate-400">Mobile: {selectedOrder.customerMobile}</p>
-                <p className="text-blue-400 mt-1">Current Stage: {selectedOrder.status}</p>
+              <div className="p-3 bg-slate-950 rounded-xl space-y-1.5">
+                <p className="font-bold text-white text-sm">{selectedOrder.customerName}</p>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-slate-400">
+                  <span className="flex items-center">
+                    <Phone className="w-3 h-3 inline mr-1 text-slate-500" />
+                    Mobile: +91 {selectedOrder.customerMobile}
+                  </span>
+                  {selectedOrder.customerWhatsapp && (
+                    <span className="text-emerald-400 flex items-center font-semibold">
+                      💬 WhatsApp: +91 {selectedOrder.customerWhatsapp}
+                    </span>
+                  )}
+                </div>
+                {selectedOrder.customerAddress && (
+                  <p className="text-slate-300">
+                    <span className="text-slate-500">Address:</span> {selectedOrder.customerAddress}
+                  </p>
+                )}
+                <p className="text-blue-400 font-semibold pt-0.5">Current Stage: {selectedOrder.status}</p>
+
+                {/* WhatsApp Chat Button */}
+                <div className="pt-2">
+                  <button
+                    onClick={() => {
+                      const num = selectedOrder.customerWhatsapp || selectedOrder.customerMobile || '';
+                      const cleanNum = num.replace(/[^0-9]/g, '').slice(-10);
+                      const msg = encodeURIComponent(
+                        `Hello ${selectedOrder.customerName}, Greetings from Trending Studio Karaikudi! Update regarding your order ${selectedOrder.orderNumber}: Current status is ${selectedOrder.status}.`
+                      );
+                      window.open(`https://wa.me/91${cleanNum}?text=${msg}`, '_blank');
+                    }}
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold inline-flex items-center space-x-1.5 shadow-md shadow-emerald-600/30"
+                  >
+                    <span>💬 Send WhatsApp Update</span>
+                  </button>
+                </div>
               </div>
 
               <div>

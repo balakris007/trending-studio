@@ -1522,11 +1522,11 @@ function getOrCreateSheet(ss, sheetName) {
 function formatSheetHeaders(sheet, sheetName) {
   var headers = [];
   if (sheetName === 'Invoices') {
-    headers = ['Invoice No', 'Date', 'Customer', 'Mobile', 'Amount (INR)', 'Payment', 'Status', 'ID', 'Last Updated'];
+    headers = ['Invoice No', 'Date', 'Customer', 'Mobile', 'WhatsApp', 'Address', 'Amount (INR)', 'Payment', 'Status', 'ID', 'Last Updated'];
   } else if (sheetName === 'Products') {
     headers = ['SKU', 'Product Name', 'Category', 'Selling Price', 'Purchase Price', 'Stock', 'ID', 'Last Updated'];
   } else if (sheetName === 'Customers') {
-    headers = ['Mobile', 'Customer Name', 'City', 'Total Spent (INR)', 'Pending Balance', 'ID', 'Last Updated'];
+    headers = ['Mobile', 'Customer Name', 'WhatsApp', 'Address', 'City', 'Total Spent (INR)', 'Pending Balance', 'ID', 'Last Updated'];
   } else if (sheetName === 'Users' || sheetName === 'Staff') {
     headers = ['User ID', 'Full Name', 'Email', 'Phone', 'Role', 'Status', 'Registered Date', 'Last Updated'];
   } else {
@@ -1584,7 +1584,7 @@ function findRowIndex(sheet, sheetName, targetVal) {
   if (lastRow < 2 || !targetVal) return -1;
   var targetStr = String(targetVal).trim().toLowerCase();
 
-  var numCols = Math.min(sheet.getLastColumn(), 9);
+  var numCols = Math.min(sheet.getLastColumn(), 11);
   var rangeData = sheet.getRange(2, 1, lastRow - 1, numCols).getValues();
 
   for (var r = 0; r < rangeData.length; r++) {
@@ -1593,7 +1593,7 @@ function findRowIndex(sheet, sheetName, targetVal) {
     if (String(rowVals[0]).trim().toLowerCase() === targetStr) {
       return r + 2;
     }
-    // Check ID columns (Col 7 or 8)
+    // Check ID columns (Col 7, 8, 9, 10)
     for (var c = 1; c < rowVals.length; c++) {
       if (String(rowVals[c]).trim().toLowerCase() === targetStr) {
         return r + 2;
@@ -1611,6 +1611,8 @@ function buildRowArray(sheetName, item) {
       item.createdAt || now,
       item.customerName || 'Walk-in Customer',
       item.customerMobile || '',
+      item.customerWhatsapp || item.customerMobile || '',
+      item.customerAddress || '',
       item.grandTotal || item.totalAmount || 0,
       item.paymentMethod || 'CASH',
       item.status || 'PAID',
@@ -1632,6 +1634,8 @@ function buildRowArray(sheetName, item) {
     return [
       item.mobile || '',
       item.name || '',
+      item.whatsapp || (item.isWhatsappSameAsMobile ? item.mobile : '') || '',
+      item.address || '',
       item.city || 'Karaikudi',
       item.totalSpent || 0,
       item.outstandingBalance || 0,
@@ -1671,12 +1675,14 @@ function readSheetAsJson(ss, sheetName) {
         createdAt: row[1] ? String(row[1]) : '',
         customerName: String(row[2] || ''),
         customerMobile: String(row[3] || ''),
-        grandTotal: Number(row[4]) || 0,
-        totalAmount: Number(row[4]) || 0,
-        paymentMethod: String(row[5] || 'CASH'),
-        status: String(row[6] || 'PAID'),
-        _id: String(row[7] || row[0] || ''),
-        id: String(row[7] || row[0] || '')
+        customerWhatsapp: String(row[4] || ''),
+        customerAddress: String(row[5] || ''),
+        grandTotal: Number(row[6]) || 0,
+        totalAmount: Number(row[6]) || 0,
+        paymentMethod: String(row[7] || 'CASH'),
+        status: String(row[8] || 'PAID'),
+        _id: String(row[9] || row[0] || ''),
+        id: String(row[9] || row[0] || '')
       };
     } else if (sheetName === 'Products') {
       obj = {
@@ -1694,11 +1700,13 @@ function readSheetAsJson(ss, sheetName) {
       obj = {
         mobile: String(row[0] || ''),
         name: String(row[1] || ''),
-        city: String(row[2] || 'Karaikudi'),
-        totalSpent: Number(row[3]) || 0,
-        outstandingBalance: Number(row[4]) || 0,
-        _id: String(row[5] || row[0] || ''),
-        id: String(row[5] || row[0] || '')
+        whatsapp: String(row[2] || ''),
+        address: String(row[3] || ''),
+        city: String(row[4] || 'Karaikudi'),
+        totalSpent: Number(row[5]) || 0,
+        outstandingBalance: Number(row[6]) || 0,
+        _id: String(row[7] || row[0] || ''),
+        id: String(row[7] || row[0] || '')
       };
     } else if (sheetName === 'Users' || sheetName === 'Staff') {
       obj = {

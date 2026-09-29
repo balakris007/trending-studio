@@ -163,6 +163,7 @@ export interface ICustomer {
   name: string;
   mobile: string;
   whatsapp?: string;
+  isWhatsappSameAsMobile?: boolean;
   alternatePhone?: string;
   email?: string;
   address?: string;
@@ -393,6 +394,8 @@ export interface IOrder {
   customerId: string;
   customerName: string;
   customerMobile: string;
+  customerWhatsapp?: string;
+  customerAddress?: string;
   branchId: string;
   items: IOrderItem[];
   subtotal: number;
@@ -491,6 +494,8 @@ export interface IInvoice {
   customerId: string;
   customerName: string;
   customerMobile: string;
+  customerWhatsapp?: string;
+  customerAddress?: string;
   customerGstin?: string;
   placeOfSupply: string; // State name or code, e.g. "Tamil Nadu" (33)
   isInterState: boolean;

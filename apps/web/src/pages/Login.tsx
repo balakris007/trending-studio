@@ -29,15 +29,14 @@ export const Login: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'MOBILE_OTP' | 'EMAIL_PASS' | 'REGISTER' | 'RESET_PASS'>('MOBILE_OTP');
 
   // --- Mobile OTP State ---
-  const [mobileNumber, setMobileNumber] = useState('7904064446');
+  const [mobileNumber, setMobileNumber] = useState('');
   const [otpCode, setOtpCode] = useState('');
   const [otpSent, setOtpSent] = useState(false);
-  const [simulatedOtpNotice, setSimulatedOtpNotice] = useState<string | null>(null);
   const [otpCountdown, setOtpCountdown] = useState(0);
 
   // --- Email/Password State ---
-  const [identifier, setIdentifier] = useState('admin@trendingstudio.com');
-  const [password, setPassword] = useState('adminpassword123');
+  const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
 
   // --- Staff Registration State ---
   const [regName, setRegName] = useState('');
@@ -53,7 +52,6 @@ export const Login: React.FC = () => {
   const [resetNewPass, setResetNewPass] = useState('');
   const [resetConfirmPass, setResetConfirmPass] = useState('');
   const [resetOtpSent, setResetOtpSent] = useState(false);
-  const [resetNotice, setResetNotice] = useState<string | null>(null);
 
   // Feedback State
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -82,21 +80,35 @@ export const Login: React.FC = () => {
     if (e) e.preventDefault();
     setErrorMsg(null);
     setSuccessMsg(null);
-    setSimulatedOtpNotice(null);
 
     const clean = mobileNumber.replace(/[^0-9]/g, '').slice(-10);
     if (clean.length < 10) {
-      setErrorMsg('Please enter a valid 10-digit mobile number.');
+      setErrorMsg('Please enter your 10-digit mobile number.');
       return;
     }
 
     setLoading(true);
     try {
-      const res = await sendMobileOtp(clean);
+      await sendMobileOtp(clean);
       setOtpSent(true);
-      setSimulatedOtpNotice(`📱 SMS / WhatsApp OTP sent to +91 ${clean}: [ ${res.otp} ] (Valid 5 mins)`);
-      setSuccessMsg(`OTP sent to +91 ${clean}! Enter the 6-digit code below.`);
+      setSuccessMsg(`OTP verification code sent via SMS to +91 ${clean}. Please check your phone SMS to enter the code.`);
       setOtpCountdown(60);
+
+      // WebOTP API: If on mobile phone with the SIM card, automatically capture the SMS code
+      if (typeof window !== 'undefined' && 'OTPCredential' in window && (navigator as any).credentials) {
+        try {
+          const ac = new AbortController();
+          (navigator.credentials as any).get({
+            otp: { transport: ['sms'] },
+            signal: ac.signal,
+          }).then((content: any) => {
+            if (content && content.code) {
+              setOtpCode(content.code);
+            }
+          }).catch(() => {});
+        } catch {}
+      }
+
       const timer = setInterval(() => {
         setOtpCountdown((prev) => {
           if (prev <= 1) {
@@ -208,7 +220,6 @@ export const Login: React.FC = () => {
     e.preventDefault();
     setErrorMsg(null);
     setSuccessMsg(null);
-    setResetNotice(null);
 
     if (!resetIdentifier.trim()) {
       setErrorMsg('Please enter your registered Email or Mobile number.');
@@ -219,8 +230,7 @@ export const Login: React.FC = () => {
     try {
       const res = await requestPasswordResetOtp(resetIdentifier);
       setResetOtpSent(true);
-      setResetNotice(`🔑 Reset OTP sent for ${res.userName} (+91 ${res.phone}): [ ${res.otp} ]`);
-      setSuccessMsg(`Verification code sent to registered number +91 ${res.phone}.`);
+      setSuccessMsg(`Verification code sent via SMS to registered mobile number +91 ${res.phone}. Please check your phone.`);
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to generate reset OTP.');
     } finally {
@@ -330,18 +340,6 @@ export const Login: React.FC = () => {
           <div className="mb-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium text-center flex items-center justify-center space-x-1.5">
             <CheckCircle2 className="w-4 h-4 shrink-0" />
             <span>{successMsg}</span>
-          </div>
-        )}
-
-        {simulatedOtpNotice && (
-          <div className="mb-4 p-3 rounded-xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 text-xs font-mono text-center shadow-sm">
-            {simulatedOtpNotice}
-          </div>
-        )}
-
-        {resetNotice && (
-          <div className="mb-4 p-3 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-mono text-center shadow-sm">
-            {resetNotice}
           </div>
         )}
 

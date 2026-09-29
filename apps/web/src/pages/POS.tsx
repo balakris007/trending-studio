@@ -49,6 +49,9 @@ export const POS: React.FC = () => {
   const [showAddCustomerModal, setShowAddCustomerModal] = useState(false);
   const [newCustomerName, setNewCustomerName] = useState('');
   const [newCustomerMobile, setNewCustomerMobile] = useState('');
+  const [newCustomerWhatsapp, setNewCustomerWhatsapp] = useState('');
+  const [newCustomerAddress, setNewCustomerAddress] = useState('');
+  const [isWhatsappSameAsMobile, setIsWhatsappSameAsMobile] = useState(true);
 
   // Catalog & Masters State
   const [products, setProducts] = useState<any[]>([]);
@@ -127,7 +130,9 @@ export const POS: React.FC = () => {
   const filteredCustomers = customers.filter(
     (c) =>
       c.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
-      c.mobile.includes(customerSearch)
+      c.mobile.includes(customerSearch) ||
+      (c.whatsapp && c.whatsapp.includes(customerSearch)) ||
+      (c.address && c.address.toLowerCase().includes(customerSearch.toLowerCase()))
   );
 
   // Filter products based on search
@@ -261,9 +266,16 @@ export const POS: React.FC = () => {
     if (!newCustomerName || !newCustomerMobile) return;
 
     try {
+      const finalWhatsapp = isWhatsappSameAsMobile
+        ? newCustomerMobile.trim()
+        : (newCustomerWhatsapp.trim() || newCustomerMobile.trim());
+
       const created = await dataService.saveCustomer({
-        name: newCustomerName,
-        mobile: newCustomerMobile,
+        name: newCustomerName.trim(),
+        mobile: newCustomerMobile.trim(),
+        whatsapp: finalWhatsapp,
+        address: newCustomerAddress.trim(),
+        isWhatsappSameAsMobile,
         city: 'Karaikudi',
         state: 'Tamil Nadu',
       });
@@ -272,6 +284,9 @@ export const POS: React.FC = () => {
       setShowAddCustomerModal(false);
       setNewCustomerName('');
       setNewCustomerMobile('');
+      setNewCustomerWhatsapp('');
+      setNewCustomerAddress('');
+      setIsWhatsappSameAsMobile(true);
     } catch (err: any) {
       alert(err.message || 'Failed to create customer');
     }
@@ -329,6 +344,8 @@ export const POS: React.FC = () => {
         customerId: selectedCustomer?._id,
         customerName: selectedCustomer?.name || 'Walk-in Customer',
         customerMobile: selectedCustomer?.mobile || '9999999999',
+        customerWhatsapp: selectedCustomer?.whatsapp || (selectedCustomer?.isWhatsappSameAsMobile ? selectedCustomer?.mobile : undefined),
+        customerAddress: selectedCustomer?.address,
         customerGstin: selectedCustomer?.gstin,
         placeOfSupply: 'Tamil Nadu',
         items: cartItems,
@@ -701,8 +718,20 @@ export const POS: React.FC = () => {
             {selectedCustomer ? (
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs font-bold text-white">{selectedCustomer.name}</p>
-                  <p className="text-[11px] font-mono text-slate-400">{selectedCustomer.mobile}</p>
+                  <div className="flex items-center space-x-1.5">
+                    <p className="text-xs font-bold text-white">{selectedCustomer.name}</p>
+                    {selectedCustomer.address && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 truncate max-w-[130px]" title={selectedCustomer.address}>
+                        📍 {selectedCustomer.address}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center space-x-2 text-[11px] font-mono text-slate-400 mt-0.5">
+                    <span>📱 {selectedCustomer.mobile}</span>
+                    {selectedCustomer.whatsapp && selectedCustomer.whatsapp !== selectedCustomer.mobile && (
+                      <span className="text-emerald-400">💬 {selectedCustomer.whatsapp}</span>
+                    )}
+                  </div>
                 </div>
                 <button
                   onClick={() => setSelectedCustomer(null)}
@@ -721,18 +750,20 @@ export const POS: React.FC = () => {
                   className="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white"
                 />
                 {customerSearch && filteredCustomers.length > 0 && (
-                  <div className="absolute left-0 top-full mt-1 w-full bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-20 max-h-40 overflow-y-auto">
+                  <div className="absolute left-0 top-full mt-1 w-full bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-20 max-h-48 overflow-y-auto">
                     {filteredCustomers.map((c) => (
                       <div
-                        key={c._id}
+                        key={c._id || c.id}
                         onClick={() => {
                           setSelectedCustomer(c);
                           setCustomerSearch('');
                         }}
-                        className="px-3 py-2 hover:bg-slate-700 text-xs text-white cursor-pointer"
+                        className="px-3 py-2 hover:bg-slate-700 text-xs text-white cursor-pointer border-b border-slate-700/40 last:border-0"
                       >
                         <p className="font-semibold">{c.name}</p>
-                        <p className="text-[10px] text-slate-400">{c.mobile}</p>
+                        <p className="text-[10px] text-slate-400">
+                          📱 {c.mobile} {c.whatsapp && c.whatsapp !== c.mobile ? `• 💬 ${c.whatsapp}` : ''} {c.address ? `• 📍 ${c.address}` : ''}
+                        </p>
                       </div>
                     ))}
                   </div>
@@ -845,16 +876,19 @@ export const POS: React.FC = () => {
 
       {/* MODAL 1: QUICK ADD CUSTOMER */}
       {showAddCustomerModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl">
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-white text-base">Quick Add Customer</h3>
-              <button onClick={() => setShowAddCustomerModal(false)} className="text-slate-400">
+              <div>
+                <h3 className="font-bold text-white text-base">Quick Add Customer</h3>
+                <p className="text-xs text-slate-400">Save profile for billing, receipts, & WhatsApp</p>
+              </div>
+              <button onClick={() => setShowAddCustomerModal(false)} className="text-slate-400 hover:text-white">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleQuickAddCustomer} className="space-y-4">
+            <form onSubmit={handleQuickAddCustomer} className="space-y-3.5">
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
                   Customer Name *
@@ -862,10 +896,10 @@ export const POS: React.FC = () => {
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Kuralarasan"
+                  placeholder="e.g. Ramesh Kannan"
                   value={newCustomerName}
                   onChange={(e) => setNewCustomerName(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white"
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
                 />
               </div>
 
@@ -873,19 +907,80 @@ export const POS: React.FC = () => {
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
                   Mobile Number (10 Digits) *
                 </label>
-                <input
-                  type="tel"
-                  required
-                  placeholder="e.g. 7904064446"
-                  value={newCustomerMobile}
-                  onChange={(e) => setNewCustomerMobile(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white"
+                <div className="relative">
+                  <span className="absolute left-3 top-2 text-xs text-slate-400 font-mono">+91</span>
+                  <input
+                    type="tel"
+                    required
+                    maxLength={10}
+                    placeholder="7904064446"
+                    value={newCustomerMobile}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/[^0-9]/g, '');
+                      setNewCustomerMobile(val);
+                      if (isWhatsappSameAsMobile) {
+                        setNewCustomerWhatsapp(val);
+                      }
+                    }}
+                    className="w-full pl-11 pr-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white font-mono placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              {/* WhatsApp Checkbox Option */}
+              <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 space-y-2">
+                <label className="flex items-center space-x-2 text-xs text-slate-300 font-medium cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isWhatsappSameAsMobile}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setIsWhatsappSameAsMobile(checked);
+                      if (checked) {
+                        setNewCustomerWhatsapp(newCustomerMobile);
+                      }
+                    }}
+                    className="w-4 h-4 rounded text-emerald-500 focus:ring-emerald-400 accent-emerald-500 cursor-pointer"
+                  />
+                  <span>Mobile number is also WhatsApp number</span>
+                </label>
+
+                {!isWhatsappSameAsMobile && (
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                      WhatsApp Number (Different)
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-2 text-xs text-slate-400 font-mono">+91</span>
+                      <input
+                        type="tel"
+                        maxLength={10}
+                        placeholder="WhatsApp 10 digits"
+                        value={newCustomerWhatsapp}
+                        onChange={(e) => setNewCustomerWhatsapp(e.target.value.replace(/[^0-9]/g, ''))}
+                        className="w-full pl-11 pr-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white font-mono placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Customer Address / Location
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="e.g. 14/B Sekkalai Road, Karaikudi"
+                  value={newCustomerAddress}
+                  onChange={(e) => setNewCustomerAddress(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
                 />
               </div>
 
               <button
                 type="submit"
-                className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold text-sm"
+                className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold text-xs shadow-md shadow-blue-600/30 transition-all"
               >
                 Save & Continue Billing
               </button>
@@ -1070,6 +1165,12 @@ export const POS: React.FC = () => {
                   <p>Date: {formatISTDateTime(completedInvoice.createdAt)}</p>
                   <p>Customer: {completedInvoice.customerName}</p>
                   <p>Phone: {completedInvoice.customerMobile}</p>
+                  {completedInvoice.customerWhatsapp && completedInvoice.customerWhatsapp !== completedInvoice.customerMobile && (
+                    <p>WhatsApp: {completedInvoice.customerWhatsapp}</p>
+                  )}
+                  {completedInvoice.customerAddress && (
+                    <p>Address: {completedInvoice.customerAddress}</p>
+                  )}
                 </div>
 
                 {/* Items */}
@@ -1132,10 +1233,12 @@ export const POS: React.FC = () => {
             <div className="pt-4 mt-2 flex items-center justify-between gap-3">
               <button
                 onClick={() => {
+                  const targetPhone = completedInvoice.customerWhatsapp || completedInvoice.customerMobile || '';
+                  const cleanPhone = targetPhone.replace(/[^0-9]/g, '').slice(-10);
                   const message = encodeURIComponent(
-                    `Hello ${completedInvoice.customerName}, Thank you for visiting Trending Studio! Your bill ${completedInvoice.invoiceNumber} for ₹${completedInvoice.grandTotal} is ready.`
+                    `Hello ${completedInvoice.customerName}, Thank you for visiting Trending Studio Karaikudi! Your bill ${completedInvoice.invoiceNumber} for ₹${completedInvoice.grandTotal} is ready.`
                   );
-                  window.open(`https://wa.me/91${completedInvoice.customerMobile}?text=${message}`, '_blank');
+                  window.open(`https://wa.me/91${cleanPhone}?text=${message}`, '_blank');
                 }}
                 className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5"
               >

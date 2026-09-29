@@ -49,6 +49,8 @@ export const Invoices: React.FC = () => {
       ...inv,
       totalFormatted: inv.totalAmount || inv.grandTotal || 0,
       dateFormatted: formatISTDateTime(inv.createdAt),
+      whatsappFormatted: inv.customerWhatsapp || inv.customerMobile || '',
+      addressFormatted: inv.customerAddress || '',
     }));
     exportToCsv(
       `trending_studio_invoices_${new Date().toISOString().slice(0, 10)}.csv`,
@@ -57,6 +59,8 @@ export const Invoices: React.FC = () => {
         { key: 'invoiceNumber', label: 'Invoice No' },
         { key: 'customerName', label: 'Customer Name' },
         { key: 'customerMobile', label: 'Customer Mobile' },
+        { key: 'whatsappFormatted', label: 'Customer WhatsApp' },
+        { key: 'addressFormatted', label: 'Customer Address' },
         { key: 'dateFormatted', label: 'Date & Time' },
         { key: 'totalFormatted', label: 'Grand Total (INR)' },
         { key: 'taxAmount', label: 'Tax Amount (INR)' },
@@ -139,7 +143,17 @@ export const Invoices: React.FC = () => {
                   </td>
                   <td className="px-4 py-3">
                     <p className="font-semibold text-white">{inv.customerName}</p>
-                    <p className="font-mono text-[10px] text-slate-400">{inv.customerMobile}</p>
+                    <div className="flex items-center space-x-2 font-mono text-[10px] text-slate-400">
+                      <span>📱 {inv.customerMobile}</span>
+                      {inv.customerWhatsapp && inv.customerWhatsapp !== inv.customerMobile && (
+                        <span className="text-emerald-400">💬 {inv.customerWhatsapp}</span>
+                      )}
+                    </div>
+                    {inv.customerAddress && (
+                      <p className="text-[10px] text-slate-400 truncate max-w-[140px]" title={inv.customerAddress}>
+                        📍 {inv.customerAddress}
+                      </p>
+                    )}
                   </td>
                   <td className="px-4 py-3">{formatINR(inv.taxableAmount)}</td>
                   <td className="px-4 py-3 text-slate-400">
@@ -186,10 +200,12 @@ export const Invoices: React.FC = () => {
 
                     <button
                       onClick={() => {
+                        const targetPhone = inv.customerWhatsapp || inv.customerMobile || '';
+                        const cleanPhone = targetPhone.replace(/[^0-9]/g, '').slice(-10);
                         const message = encodeURIComponent(
-                          `Hello ${inv.customerName}, Trending Studio bill ${inv.invoiceNumber} for ₹${inv.grandTotal}. Thank you!`
+                          `Hello ${inv.customerName}, Greetings from Trending Studio Karaikudi! Your official bill ${inv.invoiceNumber} for ₹${inv.grandTotal} is ready. Thank you!`
                         );
-                        window.open(`https://wa.me/91${inv.customerMobile}?text=${message}`, '_blank');
+                        window.open(`https://wa.me/91${cleanPhone}?text=${message}`, '_blank');
                       }}
                       title="Share to WhatsApp"
                       className="p-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400"
@@ -236,10 +252,22 @@ export const Invoices: React.FC = () => {
             </div>
 
             <div className="space-y-3 text-xs">
-              <div className="p-3 bg-slate-950 rounded-xl space-y-1">
-                <p className="font-bold text-white">{selectedInvoice.customerName}</p>
-                <p className="text-slate-400">Phone: {selectedInvoice.customerMobile}</p>
-                <p className="text-slate-400">Place of Supply: {selectedInvoice.placeOfSupply}</p>
+              <div className="p-3 bg-slate-950 rounded-xl space-y-1.5">
+                <p className="font-bold text-white text-sm">{selectedInvoice.customerName}</p>
+                <div className="flex flex-wrap gap-x-4 text-slate-400">
+                  <span>📱 Phone: +91 {selectedInvoice.customerMobile}</span>
+                  {selectedInvoice.customerWhatsapp && (
+                    <span className="text-emerald-400 font-semibold">
+                      💬 WhatsApp: +91 {selectedInvoice.customerWhatsapp}
+                    </span>
+                  )}
+                </div>
+                {selectedInvoice.customerAddress && (
+                  <p className="text-slate-300">
+                    <span className="text-slate-500">Address:</span> {selectedInvoice.customerAddress}
+                  </p>
+                )}
+                <p className="text-slate-400">Place of Supply: {selectedInvoice.placeOfSupply || 'Tamil Nadu'}</p>
               </div>
 
               <div>
