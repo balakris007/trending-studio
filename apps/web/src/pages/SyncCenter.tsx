@@ -868,15 +868,11 @@ export const SyncCenter: React.FC = () => {
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold text-slate-200 flex items-center space-x-1.5">
                 <Lock className="w-3.5 h-3.5 text-amber-400" />
-                <span>Secret API Security Key (Zero-Trust Token)</span>
+                <span>Secret API Security Key (Permanent One-Time Key)</span>
               </label>
-              <button
-                type="button"
-                onClick={handleGenerateNewApiKey}
-                className="text-[10px] text-amber-400 hover:text-amber-300 font-semibold hover:underline"
-              >
-                + Generate New Key
-              </button>
+              <span className="text-[10px] font-bold text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full border border-emerald-400/20">
+                Permanent • Never changes on login
+              </span>
             </div>
             <div className="flex items-center space-x-2">
               <input
@@ -895,6 +891,36 @@ export const SyncCenter: React.FC = () => {
                 {copiedApiKey ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
               </button>
             </div>
+            <div className="text-[11px] text-slate-400 flex items-center space-x-1.5 pt-0.5">
+              <CheckCircle className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span>Saved permanently in Cloud Firestore. No need to regenerate or re-paste when logging in.</span>
+            </div>
+
+            <details className="text-[11px] text-slate-400 pt-1 group">
+              <summary className="cursor-pointer text-slate-400 hover:text-amber-300 select-none flex items-center space-x-1 font-medium">
+                <span>⚙️ Advanced: Emergency Key Reset (Only if leaked)</span>
+              </summary>
+              <div className="mt-2 p-3 bg-slate-950/80 border border-amber-500/20 rounded-xl space-y-2">
+                <p className="text-[11px] text-amber-300/85 leading-relaxed">
+                  ⚠️ <strong>Do NOT regenerate this key for normal daily logins.</strong> This key is permanent. Only reset this key if it was accidentally exposed to an unauthorized third party. If you generate a new key, you will need to update the <code className="text-white font-mono">API_SECRET</code> variable in your Google Apps Script editor.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        "⚠️ Are you sure you want to reset your permanent API Key?\n\nIf you proceed, your Google Sheet will reject updates until you copy the new key and update 'API_SECRET' inside your Google Apps Script editor."
+                      )
+                    ) {
+                      handleGenerateNewApiKey();
+                    }
+                  }}
+                  className="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 rounded-lg text-xs font-bold transition-colors"
+                >
+                  Reset & Generate New Key
+                </button>
+              </div>
+            </details>
           </div>
         </div>
 
@@ -1136,11 +1162,12 @@ export const SyncCenter: React.FC = () => {
               <li>Click <strong className="text-white">Deploy</strong>, copy the Webhook URL, and paste it into Trending Studio!</li>
             </ol>
 
-            <div className="p-3 bg-slate-950 border border-amber-500/40 rounded-xl text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="p-3 bg-slate-950 border border-emerald-500/40 rounded-xl text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div className="flex items-center space-x-2">
-                <Lock className="w-4 h-4 text-amber-400 shrink-0" />
+                <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
                 <span className="text-slate-300">
-                  Your Secret Key <strong className="text-amber-400 font-mono">{apiKeyInput.trim() || 'ts_sec_...'}</strong> is pre-injected into the script below!
+                  <strong className="text-emerald-300">One-Time Setup:</strong> Your permanent secret key{' '}
+                  <strong className="text-amber-400 font-mono">{apiKeyInput.trim() || 'ts_sec_...'}</strong> is pre-injected into line 9 below. Once saved, this key stays permanently active and you will never need to touch it when logging in!
                 </span>
               </div>
               <button
