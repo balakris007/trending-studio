@@ -60,8 +60,8 @@ export const SyncCenter: React.FC = () => {
   // State for sheets sync & webhook
   const [isSyncingSheets, setIsSyncingSheets] = useState(false);
   const [sheetsSyncMsg, setSheetsSyncMsg] = useState<string | null>(null);
-  const [webhookInput, setWebhookInput] = useState('');
   const [sheetUrlInput, setSheetUrlInput] = useState('');
+  const [webhookInput, setWebhookInput] = useState('');
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [copiedApiKey, setCopiedApiKey] = useState(false);
   const [savingWebhook, setSavingWebhook] = useState(false);
@@ -106,24 +106,14 @@ export const SyncCenter: React.FC = () => {
 
       const s = settings as any;
       const sheetConfig = s?.googleSheetsConfig || {};
+      const currentSpreadsheetId = sheetConfig.spreadsheetId || '1GehYsbz3KoLK3XyxpdYt-uFbfgCNUineKIhWdkZJmaQ';
+      const resolvedSheetUrl =
+        sheetConfig.sheetUrl ||
+        (currentSpreadsheetId ? `https://docs.google.com/spreadsheets/d/${currentSpreadsheetId}/edit` : '');
+      setSheetUrlInput(resolvedSheetUrl);
+
       if (sheetConfig.webhookUrl) {
         setWebhookInput(sheetConfig.webhookUrl);
-      }
-      const rawSpreadsheetId = sheetConfig.spreadsheetId || '';
-      const isPlaceholderId =
-        !rawSpreadsheetId ||
-        rawSpreadsheetId === '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms' ||
-        rawSpreadsheetId.includes('1BxiMVs');
-      const cleanSpreadsheetId = isPlaceholderId ? '' : rawSpreadsheetId;
-      const cleanSheetUrl =
-        sheetConfig.sheetUrl && !sheetConfig.sheetUrl.includes('1BxiMVs0XRA')
-          ? sheetConfig.sheetUrl
-          : cleanSpreadsheetId
-          ? `https://docs.google.com/spreadsheets/d/${cleanSpreadsheetId}/edit`
-          : null;
-
-      if (cleanSheetUrl) {
-        setSheetUrlInput(cleanSheetUrl);
       }
       const existingKey = sheetConfig.apiKey || localStorage.getItem('ts_sheets_api_key') || '';
       if (existingKey) {
@@ -134,12 +124,12 @@ export const SyncCenter: React.FC = () => {
         localStorage.setItem('ts_sheets_api_key', initialKey);
       }
       setSheetsStatus({
-        spreadsheetId: cleanSpreadsheetId,
+        spreadsheetId: currentSpreadsheetId,
         webhookUrl: sheetConfig.webhookUrl || '',
         apiKey: existingKey,
         enabled: sheetConfig.enabled !== false,
-        sheetUrl: cleanSheetUrl,
-        configured: Boolean(cleanSpreadsheetId || sheetConfig.webhookUrl),
+        sheetUrl: resolvedSheetUrl,
+        configured: Boolean(currentSpreadsheetId || sheetConfig.webhookUrl),
         lastSyncedAt: sheetConfig.lastSyncedAt,
       });
     } catch (err) {
@@ -241,77 +231,92 @@ export const SyncCenter: React.FC = () => {
   };
 
   /**
-   * Save Webhook URL directly from this page
+   * Save Google Sheet URL & Webhook URL directly from this page
    */
-  const handleSaveWebhook = async () => {
-    let url = webhookInput.trim();
-    let sheetLink = sheetUrlInput.trim();
+  const handleSaveSheetsConfig = async () => {
+    let cleanWebhook = webhookInput.trim();
+    let cleanSheetUrl = sheetUrlInput.trim();
 
-    // Auto-detect if user swapped the two inputs:
-    if (url.includes('docs.google.com/spreadsheets') && !sheetLink) {
-      sheetLink = url;
-      url = '';
-      setSheetUrlInput(sheetLink);
+    // Check if the user accidentally pasted the spreadsheet URL into the webhook field
+    if (cleanWebhook.includes('docs.google.com/spreadsheets')) {
+      cleanSheetUrl = cleanWebhook;
+      setSheetUrlInput(cleanWebhook);
       setWebhookInput('');
-      alert(
-        'Notice: You entered your Google Sheet link in the Webhook box.\n\nWe moved it to the "Google Sheet Link" box below! Please now paste your Webhook URL (from Deploy -> Web app, ending in /exec) into the Webhook box.'
+      setWebhookMsg(
+        '⚠️ Notice: You pasted your Google Sheet spreadsheet link into the Webhook box. We moved it to "1. Google Sheet Link" above! To enable auto-sync, you need your Webhook URL (starts with https://script.google.com/macros/s/.../exec) from Extensions -> Apps Script -> Deploy.'
       );
       return;
     }
 
-    if (!url) {
-      alert('Please enter your Google Apps Script Webhook URL (from Deploy -> New deployment -> Web app, ending in /exec).');
-      return;
+    // Extract Spreadsheet ID from Google Sheet URL
+    let extractedSpreadsheetId = sheetsStatus?.spreadsheetId || '1GehYsbz3KoLK3XyxpdYt-uFbfgCNUineKIhWdkZJmaQ';
+    if (cleanSheetUrl) {
+      const match = cleanSheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
+      if (match) {
+        extractedSpreadsheetId = match[1];
+      } else if (cleanSheetUrl.length > 20 && !cleanSheetUrl.includes('/')) {
+        extractedSpreadsheetId = cleanSheetUrl;
+      }
     }
 
-    let spreadsheetId = sheetsStatus?.spreadsheetId || '';
-    if (sheetLink) {
-      const match = sheetLink.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-      if (match) spreadsheetId = match[1];
+    if (!cleanWebhook && !cleanSheetUrl && !extractedSpreadsheetId) {
+      alert('Please enter your Google Sheet link or Apps Script Webhook URL.');
+      return;
     }
 
     const key = apiKeyInput.trim();
     setSavingWebhook(true);
     setWebhookMsg(null);
     try {
-      localStorage.setItem('ts_sheets_api_key', key);
+      if (key) {
+        localStorage.setItem('ts_sheets_api_key', key);
+      }
 
-      const computedSheetUrl = sheetLink || (spreadsheetId ? `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit` : null);
+      const fullSheetUrl = extractedSpreadsheetId
+        ? `https://docs.google.com/spreadsheets/d/${extractedSpreadsheetId}/edit`
+        : cleanSheetUrl;
 
       // Save to settings
       await dataService.saveSettings({
         googleSheetsConfig: {
           ...sheetsStatus,
-          webhookUrl: url,
-          spreadsheetId,
-          sheetUrl: computedSheetUrl,
+          spreadsheetId: extractedSpreadsheetId,
+          sheetUrl: fullSheetUrl,
+          webhookUrl: cleanWebhook,
           apiKey: key,
           enabled: true,
           lastSyncedAt: new Date().toISOString(),
         },
       } as any);
 
-      // Immediately push all existing invoices, customers, and products to Google Sheets with API Key
-      const allInvoices = await offlineDb.getOfflineInvoices();
-      const allCusts = await offlineDb.getCachedCustomers();
-      const allProds = await offlineDb.getCachedProducts();
+      if (cleanWebhook) {
+        // Immediately push all existing invoices, customers, and products to Google Sheets with API Key
+        const allInvoices = await offlineDb.getOfflineInvoices();
+        const allCusts = await offlineDb.getCachedCustomers();
+        const allProds = await offlineDb.getCachedProducts();
 
-      await fsClient.syncToGoogleSheetsWebhook(
-        url,
-        {
-          type: 'FULL_SYNC',
-          data: { invoices: allInvoices, customers: allCusts, products: allProds },
-          apiKey: key,
-        },
-        key
-      );
+        await fsClient.syncToGoogleSheetsWebhook(
+          cleanWebhook,
+          {
+            type: 'FULL_SYNC',
+            data: { invoices: allInvoices, customers: allCusts, products: allProds },
+            apiKey: key,
+          },
+          key
+        );
 
-      setWebhookMsg(
-        `✅ Connected successfully! Pushed ${allInvoices.length} invoices, ${allCusts.length} customers, and ${allProds.length} products to your Google Sheet with cryptographic token protection!`
-      );
+        setWebhookMsg(
+          `✅ Successfully connected! Pushed ${allInvoices.length} invoices, ${allCusts.length} customers, and ${allProds.length} products to your Google Sheet!`
+        );
+      } else {
+        setWebhookMsg(
+          `✅ Google Sheet link saved! (Spreadsheet ID: ${extractedSpreadsheetId}). Next: Deploy Apps Script inside your sheet and paste the Webhook URL below to activate live auto-sync.`
+        );
+      }
+
       await fetchSyncData();
     } catch (err: any) {
-      setWebhookMsg(err.message || 'Failed to verify webhook URL.');
+      setWebhookMsg(err.message || 'Failed to save Google Sheets configuration.');
     } finally {
       setSavingWebhook(false);
     }
@@ -427,12 +432,6 @@ export const SyncCenter: React.FC = () => {
     } finally {
       setIsTestingCrud(false);
     }
-  };
-
-  const handleGenerateNewApiKey = () => {
-    const newKey = 'ts_sec_' + Math.random().toString(36).substring(2, 8) + Date.now().toString(36);
-    setApiKeyInput(newKey);
-    localStorage.setItem('ts_sheets_api_key', newKey);
   };
 
   const handleCopyApiKey = () => {
@@ -888,49 +887,23 @@ export const SyncCenter: React.FC = () => {
         </div>
 
         {/* WEBHOOK CONFIGURATION & SECURITY CREDENTIALS */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
-          {/* Webhook URL */}
+        {/* WEBHOOK CONFIGURATION & SECURITY CREDENTIALS */}
+        <div className="space-y-4 pt-1">
+          {/* Step 1: Your Live Google Sheet URL */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <label className="block text-xs font-bold text-slate-200">
-                1. Google Apps Script Webhook URL (Pipeline Link)
+              <label className="text-xs font-bold text-slate-200 flex items-center space-x-1.5">
+                <Table className="w-3.5 h-3.5 text-emerald-400" />
+                <span>1. Google Sheet Link (Your Spreadsheet URL)</span>
               </label>
-              {webhookInput.trim().endsWith('/exec') ? (
-                <span className="text-[10px] font-bold text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full border border-emerald-400/20">
-                  ✓ Valid Webhook format
-                </span>
-              ) : webhookInput.trim().includes('docs.google.com/spreadsheets') ? (
-                <span className="text-[10px] font-bold text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded-full border border-amber-400/20">
-                  ⚠️ Spreadsheet link detected! Use box 2
-                </span>
-              ) : null}
-            </div>
-            <input
-              type="text"
-              placeholder="https://script.google.com/macros/s/.../exec"
-              value={webhookInput}
-              onChange={(e) => setWebhookInput(e.target.value)}
-              className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-emerald-500"
-            />
-            <p className="text-[11px] text-slate-400">
-              The URL from <strong className="text-slate-300">Deploy $\rightarrow$ Web app</strong>. Must start with <code>https://script.google.com/macros/s/</code> and end with <code>/exec</code>.
-            </p>
-          </div>
-
-          {/* Google Sheet Direct View Link */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <label className="block text-xs font-bold text-slate-200">
-                2. Your Google Sheet Link (Where You View Data)
-              </label>
-              {(sheetUrlInput.trim() || sheetsStatus?.sheetUrl) && (
+              {sheetUrlInput && (
                 <a
-                  href={sheetUrlInput.trim() || sheetsStatus?.sheetUrl || '#'}
+                  href={sheetUrlInput}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-[10px] font-bold text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 px-2 py-0.5 rounded-full border border-blue-500/20 flex items-center space-x-1"
+                  className="text-[11px] text-emerald-400 hover:text-emerald-300 font-semibold flex items-center space-x-1"
                 >
-                  <span>Open Sheet in New Tab</span>
+                  <span>Open Your Google Sheet</span>
                   <ExternalLink className="w-3 h-3" />
                 </a>
               )}
@@ -938,125 +911,81 @@ export const SyncCenter: React.FC = () => {
             <div className="flex items-center space-x-2">
               <input
                 type="text"
-                placeholder="https://docs.google.com/spreadsheets/d/.../edit"
+                placeholder="https://docs.google.com/spreadsheets/d/1GehYsbz3KoLK3XyxpdYt-uFbfgCNUineKIhWdkZJmaQ/edit"
                 value={sheetUrlInput}
                 onChange={(e) => setSheetUrlInput(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-slate-200 font-mono placeholder-slate-600 focus:outline-none focus:border-blue-500"
+                className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-emerald-500"
               />
-              {(sheetUrlInput.trim() || sheetsStatus?.sheetUrl) && (
-                <a
-                  href={sheetUrlInput.trim() || sheetsStatus?.sheetUrl || '#'}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-3 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white shrink-0 flex items-center space-x-1 shadow-md"
-                  title="Open this sheet in a new browser tab"
-                >
-                  <span>Open</span>
-                  <ExternalLink className="w-3.5 h-3.5" />
-                </a>
-              )}
             </div>
             <p className="text-[11px] text-slate-400">
-              The URL in your browser address bar when looking at your spreadsheet.
+              Paste your Google Sheet link here. Active Spreadsheet ID:{' '}
+              <code className="text-emerald-400 font-mono font-bold">
+                {sheetsStatus?.spreadsheetId || '1GehYsbz3KoLK3XyxpdYt-uFbfgCNUineKIhWdkZJmaQ'}
+              </code>
             </p>
           </div>
-        </div>
 
-        {/* Secret API Key Row */}
-        <div className="pt-1">
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-slate-200 flex items-center space-x-1.5">
-                <Lock className="w-3.5 h-3.5 text-amber-400" />
-                <span>3. Secret API Security Key (Permanent One-Time Key)</span>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Step 2: Apps Script Webhook URL */}
+            <div className="space-y-1.5">
+              <label className="block text-xs font-bold text-slate-200 flex items-center space-x-1.5">
+                <Code className="w-3.5 h-3.5 text-blue-400" />
+                <span>2. Apps Script Webhook URL (The Bridge to write data)</span>
               </label>
-              <span className="text-[10px] font-bold text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full border border-emerald-400/20">
-                Permanent • Never changes on login
-              </span>
-            </div>
-            <div className="flex items-center space-x-2">
               <input
                 type="text"
-                placeholder="ts_sec_..."
-                value={apiKeyInput}
-                onChange={(e) => setApiKeyInput(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-amber-400 font-mono placeholder-slate-600 focus:outline-none focus:border-amber-500"
+                placeholder="https://script.google.com/macros/s/.../exec"
+                value={webhookInput}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val.includes('docs.google.com/spreadsheets')) {
+                    setSheetUrlInput(val);
+                    setWebhookMsg(
+                      '💡 That is your Google Sheet spreadsheet link! We automatically moved it to "1. Google Sheet Link" above. To get your Webhook URL, open your sheet -> Extensions -> Apps Script -> Deploy -> New deployment -> Web app.'
+                    );
+                    setWebhookInput('');
+                  } else {
+                    setWebhookInput(val);
+                  }
+                }}
+                className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-blue-500"
               />
-              <button
-                type="button"
-                onClick={handleCopyApiKey}
-                title="Copy API Key"
-                className="px-3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-slate-200 hover:text-white shrink-0 flex items-center space-x-1"
-              >
-                {copiedApiKey ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-              </button>
-            </div>
-            <div className="text-[11px] text-slate-400 flex items-center space-x-1.5 pt-0.5">
-              <CheckCircle className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-              <span>Saved permanently in Cloud Firestore. No need to regenerate or re-paste when logging in.</span>
+              <p className="text-[11px] text-slate-400">
+                Created in your sheet under <strong className="text-slate-300">Extensions $\rightarrow$ Apps Script $\rightarrow$ Deploy $\rightarrow$ Web app</strong>.
+              </p>
             </div>
 
-            <details className="text-[11px] text-slate-400 pt-1 group">
-              <summary className="cursor-pointer text-slate-400 hover:text-amber-300 select-none flex items-center space-x-1 font-medium">
-                <span>⚙️ Advanced: Emergency Key Reset (Only if leaked)</span>
-              </summary>
-              <div className="mt-2 p-3 bg-slate-950/80 border border-amber-500/20 rounded-xl space-y-2">
-                <p className="text-[11px] text-amber-300/85 leading-relaxed">
-                  ⚠️ <strong>Do NOT regenerate this key for normal daily logins.</strong> This key is permanent. Only reset this key if it was accidentally exposed to an unauthorized third party. If you generate a new key, you will need to update the <code className="text-white font-mono">API_SECRET</code> variable in your Google Apps Script editor.
-                </p>
+            {/* Step 3: Permanent API Key (Read-only, no reset buttons) */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-200 flex items-center space-x-1.5">
+                  <Lock className="w-3.5 h-3.5 text-amber-400" />
+                  <span>3. Permanent Secret Key (Zero-Trust Token)</span>
+                </label>
+                <span className="text-[10px] font-bold text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full border border-emerald-400/20">
+                  Fixed • Permanent
+                </span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={apiKeyInput}
+                  className="w-full px-3.5 py-2.5 bg-slate-950/60 border border-slate-800 rounded-xl text-xs text-amber-400 font-mono select-all focus:outline-none"
+                />
                 <button
                   type="button"
-                  onClick={() => {
-                    if (
-                      window.confirm(
-                        "⚠️ Are you sure you want to reset your permanent API Key?\n\nIf you proceed, your Google Sheet will reject updates until you copy the new key and update 'API_SECRET' inside your Google Apps Script editor."
-                      )
-                    ) {
-                      handleGenerateNewApiKey();
-                    }
-                  }}
-                  className="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 rounded-lg text-xs font-bold transition-colors"
+                  onClick={handleCopyApiKey}
+                  title="Copy Permanent Key"
+                  className="px-3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-slate-200 hover:text-white shrink-0 flex items-center space-x-1"
                 >
-                  Reset & Generate New Key
+                  {copiedApiKey ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                 </button>
               </div>
-            </details>
-          </div>
-        </div>
-
-        {/* HOW TO VERIFY DATA IS BEING ADDED CARD */}
-        <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-950/40 via-indigo-950/30 to-purple-950/40 border border-blue-500/30 space-y-2">
-          <div className="flex items-center space-x-2 text-xs font-bold text-blue-200">
-            <Sparkles className="w-4 h-4 text-blue-400" />
-            <span>How to know if your Google Sheet link is correct & receiving data:</span>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 text-[11px] text-slate-300 pt-1">
-            <div className="p-2.5 bg-slate-900/80 border border-slate-800 rounded-xl space-y-1">
-              <span className="font-bold text-white flex items-center space-x-1">
-                <span className="w-4 h-4 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-[10px]">1</span>
-                <span>Check Webhook URL</span>
-              </span>
-              <p className="text-slate-400">
-                It must end with <code className="text-emerald-400">/exec</code>. (If it contains <code>spreadsheets/d/</code>, that is your Sheet link, not the Webhook URL).
-              </p>
-            </div>
-            <div className="p-2.5 bg-slate-900/80 border border-slate-800 rounded-xl space-y-1">
-              <span className="font-bold text-white flex items-center space-x-1">
-                <span className="w-4 h-4 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center text-[10px]">2</span>
-                <span>Click "Test Live CRUD"</span>
-              </span>
-              <p className="text-slate-400">
-                Click the orange button below. If you get 4 green checkmarks, data is actively reading and writing to your sheet!
-              </p>
-            </div>
-            <div className="p-2.5 bg-slate-900/80 border border-slate-800 rounded-xl space-y-1">
-              <span className="font-bold text-white flex items-center space-x-1">
-                <span className="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-[10px]">3</span>
-                <span>Check Tabs in Chrome</span>
-              </span>
-              <p className="text-slate-400">
-                Open your Google Sheet and look at the bottom tabs: click <strong className="text-emerald-300">Invoices</strong> to see all your sales rows!
-              </p>
+              <div className="text-[11px] text-slate-400 flex items-center space-x-1.5 pt-0.5">
+                <CheckCircle className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span>Pre-injected into script. Saved in Cloud Firestore forever.</span>
+              </div>
             </div>
           </div>
         </div>
@@ -1079,12 +1008,12 @@ export const SyncCenter: React.FC = () => {
         {/* SAVE BUTTON */}
         <div className="flex justify-end">
           <button
-            onClick={handleSaveWebhook}
-            disabled={savingWebhook || !webhookInput.trim()}
+            onClick={handleSaveSheetsConfig}
+            disabled={savingWebhook || (!webhookInput.trim() && !sheetUrlInput.trim())}
             className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center justify-center space-x-1.5 shadow-lg shadow-emerald-600/20 disabled:opacity-50 transition-all active:scale-95"
           >
             <Check className="w-3.5 h-3.5" />
-            <span>{savingWebhook ? 'Saving & Verifying...' : 'Save & Link Protected Webhook'}</span>
+            <span>{savingWebhook ? 'Saving & Verifying...' : 'Save & Link Google Sheet'}</span>
           </button>
         </div>
 
