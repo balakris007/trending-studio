@@ -109,11 +109,21 @@ export const SyncCenter: React.FC = () => {
       if (sheetConfig.webhookUrl) {
         setWebhookInput(sheetConfig.webhookUrl);
       }
-      if (sheetConfig.sheetUrl || sheetConfig.spreadsheetId) {
-        setSheetUrlInput(
-          sheetConfig.sheetUrl ||
-            (sheetConfig.spreadsheetId ? `https://docs.google.com/spreadsheets/d/${sheetConfig.spreadsheetId}/edit` : '')
-        );
+      const rawSpreadsheetId = sheetConfig.spreadsheetId || '';
+      const isPlaceholderId =
+        !rawSpreadsheetId ||
+        rawSpreadsheetId === '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms' ||
+        rawSpreadsheetId.includes('1BxiMVs');
+      const cleanSpreadsheetId = isPlaceholderId ? '' : rawSpreadsheetId;
+      const cleanSheetUrl =
+        sheetConfig.sheetUrl && !sheetConfig.sheetUrl.includes('1BxiMVs0XRA')
+          ? sheetConfig.sheetUrl
+          : cleanSpreadsheetId
+          ? `https://docs.google.com/spreadsheets/d/${cleanSpreadsheetId}/edit`
+          : null;
+
+      if (cleanSheetUrl) {
+        setSheetUrlInput(cleanSheetUrl);
       }
       const existingKey = sheetConfig.apiKey || localStorage.getItem('ts_sheets_api_key') || '';
       if (existingKey) {
@@ -124,14 +134,12 @@ export const SyncCenter: React.FC = () => {
         localStorage.setItem('ts_sheets_api_key', initialKey);
       }
       setSheetsStatus({
-        spreadsheetId: sheetConfig.spreadsheetId || '',
+        spreadsheetId: cleanSpreadsheetId,
         webhookUrl: sheetConfig.webhookUrl || '',
         apiKey: existingKey,
         enabled: sheetConfig.enabled !== false,
-        sheetUrl: sheetConfig.spreadsheetId
-          ? `https://docs.google.com/spreadsheets/d/${sheetConfig.spreadsheetId}/edit`
-          : null,
-        configured: Boolean(sheetConfig.spreadsheetId || sheetConfig.webhookUrl),
+        sheetUrl: cleanSheetUrl,
+        configured: Boolean(cleanSpreadsheetId || sheetConfig.webhookUrl),
         lastSyncedAt: sheetConfig.lastSyncedAt,
       });
     } catch (err) {

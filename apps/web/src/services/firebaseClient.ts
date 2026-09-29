@@ -1180,6 +1180,9 @@ function doGet(e) {
 
       var jsonOutput = JSON.stringify({
         status: 'success',
+        sheetName: ss.getName(),
+        sheetUrl: ss.getUrl(),
+        spreadsheetId: ss.getId(),
         data: result,
         timestamp: new Date().toISOString()
       });
@@ -1197,6 +1200,9 @@ function doGet(e) {
       status: 'online',
       database: 'Trending Studio Google Sheets DB',
       version: '2.1.0 (Secure)',
+      sheetName: ss.getName(),
+      sheetUrl: ss.getUrl(),
+      spreadsheetId: ss.getId(),
       authenticated: true,
       timestamp: new Date().toISOString(),
       operations: ['INSERT', 'UPDATE', 'MODIFY', 'DELETE', 'QUERY', 'READ', 'FULL_SYNC']
