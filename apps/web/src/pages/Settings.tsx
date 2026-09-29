@@ -45,40 +45,24 @@ export const Settings: React.FC = () => {
 
   const fetchSheetsStatus = async () => {
     try {
-      const res = await api.get('/sheets/status');
-      if (res.data?.data) {
-        setSheetsConfig({
-          spreadsheetId: res.data.data.spreadsheetId || '',
-          webhookUrl: res.data.data.webhookUrl || '',
-          enabled: res.data.data.enabled !== false,
-          sheetUrl: res.data.data.sheetUrl || '',
-          serviceAccountEmail:
-            res.data.data.serviceAccountEmail ||
-            'firebase-adminsdk-fbsvc@trending-studio.iam.gserviceaccount.com',
-          lastSyncedAt: res.data.data.lastSyncedAt,
-          configured: res.data.data.configured,
-        });
-        return;
-      }
-    } catch {}
-
-    // Fallback: Read directly from Cloud Firestore settings
-    try {
       const s: any = await dataService.getSettings();
       const sheetCfg = s?.googleSheetsConfig || {};
-      if (sheetCfg.spreadsheetId || sheetCfg.webhookUrl) {
-        setSheetsConfig((prev) => ({
-          ...prev,
-          spreadsheetId: sheetCfg.spreadsheetId || '',
-          webhookUrl: sheetCfg.webhookUrl || '',
-          enabled: sheetCfg.enabled !== false,
-          sheetUrl: sheetCfg.spreadsheetId ? `https://docs.google.com/spreadsheets/d/${sheetCfg.spreadsheetId}/edit` : '',
-          configured: true,
-          lastSyncedAt: sheetCfg.lastSyncedAt,
-        }));
+      const DEFAULT_ID = '1GehYsbz3KoLK3XyxpdYt-uFbfgCNUineKIhWdkZJmaQ';
+      let cleanId = String(sheetCfg.spreadsheetId || '').trim();
+      if (!cleanId || cleanId.includes(' ') || cleanId.includes('API') || cleanId.includes('not found') || cleanId.length < 15) {
+        cleanId = DEFAULT_ID;
       }
+      setSheetsConfig((prev) => ({
+        ...prev,
+        spreadsheetId: cleanId,
+        webhookUrl: sheetCfg.webhookUrl || '',
+        enabled: sheetCfg.enabled !== false,
+        sheetUrl: `https://docs.google.com/spreadsheets/d/${cleanId}/edit`,
+        configured: Boolean(cleanId || sheetCfg.webhookUrl),
+        lastSyncedAt: sheetCfg.lastSyncedAt,
+      }));
     } catch (fsErr) {
-      console.warn('Failed to load settings from Firestore:', fsErr);
+      console.warn('Failed to load sheets config from Firestore:', fsErr);
     }
   };
 

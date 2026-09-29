@@ -39,6 +39,31 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
+const DEFAULT_SPREADSHEET_ID = '1GehYsbz3KoLK3XyxpdYt-uFbfgCNUineKIhWdkZJmaQ';
+
+export function isValidSpreadsheetId(id: string | null | undefined): boolean {
+  if (!id) return false;
+  const str = String(id).trim();
+  // Invalid if contains spaces or known server error fragments
+  if (str.includes(' ') || str.includes('API') || str.includes('route') || str.includes('static') || str.includes('not found')) {
+    return false;
+  }
+  return /^[a-zA-Z0-9-_]{20,60}$/.test(str);
+}
+
+export function sanitizeSpreadsheetId(raw: string | null | undefined): string {
+  if (!raw) return DEFAULT_SPREADSHEET_ID;
+  const str = String(raw).trim();
+  if (str.includes('/d/')) {
+    const match = str.match(/\/d\/([a-zA-Z0-9-_]{20,60})/);
+    if (match && isValidSpreadsheetId(match[1])) return match[1];
+  }
+  if (isValidSpreadsheetId(str)) {
+    return str;
+  }
+  return DEFAULT_SPREADSHEET_ID;
+}
+
 export const SyncCenter: React.FC = () => {
   const [devices, setDevices] = useState<any[]>([]);
   const [syncStatus, setSyncStatus] = useState<any>(null);
@@ -106,11 +131,21 @@ export const SyncCenter: React.FC = () => {
 
       const s = settings as any;
       const sheetConfig = s?.googleSheetsConfig || {};
-      const currentSpreadsheetId = sheetConfig.spreadsheetId || '1GehYsbz3KoLK3XyxpdYt-uFbfgCNUineKIhWdkZJmaQ';
-      const resolvedSheetUrl =
-        sheetConfig.sheetUrl ||
-        (currentSpreadsheetId ? `https://docs.google.com/spreadsheets/d/${currentSpreadsheetId}/edit` : '');
+      const rawSpreadsheetId = sheetConfig.spreadsheetId;
+      const currentSpreadsheetId = sanitizeSpreadsheetId(rawSpreadsheetId);
+      const resolvedSheetUrl = `https://docs.google.com/spreadsheets/d/${currentSpreadsheetId}/edit`;
       setSheetUrlInput(resolvedSheetUrl);
+
+      // Auto-repair if corrupted data was saved previously in Firestore
+      if (rawSpreadsheetId && (!isValidSpreadsheetId(rawSpreadsheetId) || rawSpreadsheetId !== currentSpreadsheetId)) {
+        dataService.saveSettings({
+          googleSheetsConfig: {
+            ...sheetConfig,
+            spreadsheetId: currentSpreadsheetId,
+            sheetUrl: resolvedSheetUrl,
+          },
+        } as any).catch(() => {});
+      }
 
       if (sheetConfig.webhookUrl) {
         setWebhookInput(sheetConfig.webhookUrl);
@@ -248,15 +283,12 @@ export const SyncCenter: React.FC = () => {
       return;
     }
 
-    // Extract Spreadsheet ID from Google Sheet URL
-    let extractedSpreadsheetId = sheetsStatus?.spreadsheetId || '1GehYsbz3KoLK3XyxpdYt-uFbfgCNUineKIhWdkZJmaQ';
+    // Extract & sanitize Spreadsheet ID from Google Sheet URL
+    let extractedSpreadsheetId = DEFAULT_SPREADSHEET_ID;
     if (cleanSheetUrl) {
-      const match = cleanSheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
-      if (match) {
-        extractedSpreadsheetId = match[1];
-      } else if (cleanSheetUrl.length > 20 && !cleanSheetUrl.includes('/')) {
-        extractedSpreadsheetId = cleanSheetUrl;
-      }
+      extractedSpreadsheetId = sanitizeSpreadsheetId(cleanSheetUrl);
+    } else if (sheetsStatus?.spreadsheetId) {
+      extractedSpreadsheetId = sanitizeSpreadsheetId(sheetsStatus.spreadsheetId);
     }
 
     if (!cleanWebhook && !cleanSheetUrl && !extractedSpreadsheetId) {
