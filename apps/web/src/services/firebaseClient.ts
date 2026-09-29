@@ -1066,11 +1066,14 @@ export function pullFromGoogleSheets(
 }
 
 /**
- * Generate customized Google Apps Script code with user's specific API Secret Key injected
+ * Generate customized Google Apps Script code with user's specific API Secret Key and Target Spreadsheet ID injected
  */
-export function getGeneratedAppsScriptCode(customApiKey?: string): string {
+export function getGeneratedAppsScriptCode(customApiKey?: string, customSpreadsheetId?: string): string {
   const key = customApiKey || localStorage.getItem('ts_sheets_api_key') || 'ts_sec_' + Math.random().toString(36).substring(2, 10);
-  return GOOGLE_APPS_SCRIPT_CODE.replace('__TS_API_SECRET_KEY__', key);
+  const sheetId = customSpreadsheetId || '1GehYsbz3KoLK3XyxpdYt-uFbfgCNUineKIhWdkZJmaQ';
+  return GOOGLE_APPS_SCRIPT_CODE
+    .replace('__TS_API_SECRET_KEY__', key)
+    .replace('__TS_SPREADSHEET_ID__', sheetId);
 }
 
 /**
@@ -1104,7 +1107,7 @@ export function exportToCsv(filename: string, rows: any[], headers: { key: strin
  * Protected by Cryptographic API Secret Token (Zero-trust access)
  */
 export const GOOGLE_APPS_SCRIPT_CODE = `/**
- * TRENDING STUDIO — GOOGLE APPS SCRIPT RELATIONAL DATABASE ENGINE (v2.1 SECURE)
+ * TRENDING STUDIO — GOOGLE APPS SCRIPT RELATIONAL DATABASE ENGINE (v2.2 SECURE)
  * Protected with Cryptographic API Secret Key authentication.
  * 
  * SECURITY ARCHITECTURE:
@@ -1118,18 +1121,32 @@ export const GOOGLE_APPS_SCRIPT_CODE = `/**
 // 🔒 SET YOUR SECRET API KEY HERE (Matches the API Key saved in Trending Studio Sync Center)
 var API_SECRET = '__TS_API_SECRET_KEY__';
 
+// 📊 TARGET SPREADSHEET ID (Guarantees data is stored in your exact Google Sheet):
+var TARGET_SPREADSHEET_ID = '__TS_SPREADSHEET_ID__';
+
+function getSpreadsheet() {
+  if (TARGET_SPREADSHEET_ID && TARGET_SPREADSHEET_ID !== '__TS_SPREADSHEET_ID__' && String(TARGET_SPREADSHEET_ID).trim() !== '') {
+    try {
+      return SpreadsheetApp.openById(String(TARGET_SPREADSHEET_ID).trim());
+    } catch (err) {
+      Logger.log('Notice: openById failed, fallback to active spreadsheet: ' + err);
+    }
+  }
+  return SpreadsheetApp.getActiveSpreadsheet();
+}
+
 /**
  * ⚡ 1-CLICK AUTHORIZATION & CONNECTION TEST:
  * Select 'testConnection' in the toolbar dropdown at the top and click 'Run'.
  * This triggers Google's 1-time permission authorization and creates your sheet tabs!
  */
 function testConnection() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = getSpreadsheet();
   getOrCreateSheet(ss, 'Invoices');
   getOrCreateSheet(ss, 'Products');
   getOrCreateSheet(ss, 'Customers');
-  Logger.log('✅ Success! Google Account access authorized. Database tabs initialized for: ' + ss.getName());
-  return 'Connected to ' + ss.getName();
+  Logger.log('✅ Success! Connected directly to Google Sheet: "' + ss.getName() + '" (ID: ' + ss.getId() + ')');
+  return 'Connected to ' + ss.getName() + ' (' + ss.getId() + ')';
 }
 
 function isAuthorized(e, payload) {
@@ -1145,7 +1162,7 @@ function isAuthorized(e, payload) {
 
 function doGet(e) {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = getSpreadsheet();
     var action = (e && e.parameter && e.parameter.action) || 'ping';
     var callback = e && e.parameter && e.parameter.callback;
 
@@ -1216,7 +1233,7 @@ function doGet(e) {
 
 function doPost(e) {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = getSpreadsheet();
     var payload = JSON.parse(e.postData.contents);
 
     // Security Gate: Verify API Secret Key

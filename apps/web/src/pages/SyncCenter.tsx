@@ -434,6 +434,26 @@ export const SyncCenter: React.FC = () => {
     }
   };
 
+  const handleResetApiKey = async () => {
+    const newKey = 'ts_sec_' + Math.random().toString(36).substring(2, 8) + Date.now().toString(36);
+    setApiKeyInput(newKey);
+    localStorage.setItem('ts_sheets_api_key', newKey);
+    try {
+      await dataService.saveSettings({
+        googleSheetsConfig: {
+          ...sheetsStatus,
+          apiKey: newKey,
+          lastSyncedAt: new Date().toISOString(),
+        },
+      } as any);
+      setWebhookMsg(
+        `🔑 Fresh Secret Key generated & saved: ${newKey}. Click "Get Database Script Code" to copy the updated script containing your new key!`
+      );
+    } catch {
+      setWebhookMsg(`🔑 Fresh Secret Key generated: ${newKey}. Click "Save & Link Google Sheet" to persist.`);
+    }
+  };
+
   const handleCopyApiKey = () => {
     navigator.clipboard.writeText(apiKeyInput.trim());
     setCopiedApiKey(true);
@@ -441,7 +461,10 @@ export const SyncCenter: React.FC = () => {
   };
 
   const handleCopyScript = () => {
-    const code = getGeneratedAppsScriptCode(apiKeyInput.trim());
+    const code = getGeneratedAppsScriptCode(
+      apiKeyInput.trim(),
+      sheetsStatus?.spreadsheetId || '1GehYsbz3KoLK3XyxpdYt-uFbfgCNUineKIhWdkZJmaQ'
+    );
     navigator.clipboard.writeText(code);
     setCopiedScript(true);
     setTimeout(() => setCopiedScript(false), 3000);
@@ -955,15 +978,15 @@ export const SyncCenter: React.FC = () => {
               </p>
             </div>
 
-            {/* Step 3: Permanent API Key (Read-only, no reset buttons) */}
+            {/* Step 3: Secret API Key with Reset Key button */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-bold text-slate-200 flex items-center space-x-1.5">
                   <Lock className="w-3.5 h-3.5 text-amber-400" />
-                  <span>3. Permanent Secret Key (Zero-Trust Token)</span>
+                  <span>3. Secret API Security Key</span>
                 </label>
                 <span className="text-[10px] font-bold text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full border border-emerald-400/20">
-                  Fixed • Permanent
+                  Zero-Trust Token
                 </span>
               </div>
               <div className="flex items-center space-x-2">
@@ -980,11 +1003,21 @@ export const SyncCenter: React.FC = () => {
                   className="px-3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-slate-200 hover:text-white shrink-0 flex items-center space-x-1"
                 >
                   {copiedApiKey ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedApiKey ? 'Copied' : 'Copy'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResetApiKey}
+                  title="Generate a fresh secret key"
+                  className="px-3 py-2.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-xs font-bold text-amber-300 hover:text-amber-200 shrink-0 flex items-center space-x-1.5 transition-colors"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Reset Key</span>
                 </button>
               </div>
               <div className="text-[11px] text-slate-400 flex items-center space-x-1.5 pt-0.5">
                 <CheckCircle className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                <span>Pre-injected into script. Saved in Cloud Firestore forever.</span>
+                <span>Pre-injected into script. Saved in Cloud Firestore. Click "Reset Key" anytime to generate a fresh key.</span>
               </div>
             </div>
           </div>
@@ -1241,8 +1274,12 @@ export const SyncCenter: React.FC = () => {
               <div className="flex items-center space-x-2">
                 <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
                 <span className="text-slate-300">
-                  <strong className="text-emerald-300">One-Time Setup:</strong> Your permanent secret key{' '}
-                  <strong className="text-amber-400 font-mono">{apiKeyInput.trim() || 'ts_sec_...'}</strong> is pre-injected into line 9 below. Once saved, this key stays permanently active and you will never need to touch it when logging in!
+                  <strong className="text-emerald-300">Target Sheet Locked:</strong> Your secret key{' '}
+                  <strong className="text-amber-400 font-mono">{apiKeyInput.trim() || 'ts_sec_...'}</strong> and Google Spreadsheet ID{' '}
+                  <strong className="text-emerald-400 font-mono">
+                    {sheetsStatus?.spreadsheetId || '1GehYsbz3KoLK3XyxpdYt-uFbfgCNUineKIhWdkZJmaQ'}
+                  </strong>{' '}
+                  are pre-injected below! This guarantees data is stored in your exact sheet.
                 </span>
               </div>
               <button
@@ -1256,7 +1293,10 @@ export const SyncCenter: React.FC = () => {
 
             <div className="relative">
               <pre className="p-3 bg-slate-950 border border-slate-800 rounded-xl text-[11px] font-mono text-emerald-400 overflow-x-auto max-h-72">
-                {getGeneratedAppsScriptCode(apiKeyInput.trim())}
+                {getGeneratedAppsScriptCode(
+                  apiKeyInput.trim(),
+                  sheetsStatus?.spreadsheetId || '1GehYsbz3KoLK3XyxpdYt-uFbfgCNUineKIhWdkZJmaQ'
+                )}
               </pre>
               <button
                 onClick={handleCopyScript}
