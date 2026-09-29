@@ -548,6 +548,27 @@ export const dataService = {
     }
   },
 
+  async getPrintWithFrameMatrix(): Promise<any[]> {
+    try {
+      const res = await api.get('/frames/print-with-frame-matrix');
+      if (res.data?.data && Array.isArray(res.data.data) && res.data.data.length > 0) {
+        return res.data.data;
+      }
+      return await fsClient.getFirestorePrintWithFrameMatrix();
+    } catch (apiErr) {
+      return await fsClient.getFirestorePrintWithFrameMatrix();
+    }
+  },
+
+  async savePrintWithFrameMatrix(matrix: any[]): Promise<void> {
+    try {
+      await api.post('/frames/print-with-frame-matrix', { matrix });
+    } catch (apiErr) {
+      // Fall through to Firestore
+    }
+    await fsClient.savePrintWithFrameMatrixToFirestore(matrix);
+  },
+
   // ----------------------------------------------------------------------
   // Employees & Staff Management
   // ----------------------------------------------------------------------

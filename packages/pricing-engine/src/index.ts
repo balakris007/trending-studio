@@ -245,3 +245,39 @@ export function calculateCustomFramePrice(
     totalFramePrice,
   };
 }
+
+/**
+ * Trending Studio Print with Frame Authentic Price Matrix
+ * Exact rates from Trending Studio Karaikudi pricing chart
+ */
+export interface IPrintWithFrameMatrixRow {
+  size: string;
+  width: number;
+  height: number;
+  halfInch: number | null;
+  oneInch: number | null;
+  oneAndHalfInch: number | null;
+  twoInch: number | null;
+}
+
+export const PRINT_WITH_FRAME_PRICE_MATRIX: IPrintWithFrameMatrixRow[] = [
+  { size: '4x6', width: 4, height: 6, halfInch: 60, oneInch: null, oneAndHalfInch: null, twoInch: null },
+  { size: '6x8', width: 6, height: 8, halfInch: 120, oneInch: null, oneAndHalfInch: null, twoInch: null },
+  { size: '10x8', width: 10, height: 8, halfInch: null, oneInch: 260, oneAndHalfInch: null, twoInch: null },
+  { size: '12x8', width: 12, height: 8, halfInch: null, oneInch: 310, oneAndHalfInch: null, twoInch: null },
+  { size: '12x10', width: 12, height: 10, halfInch: null, oneInch: 390, oneAndHalfInch: null, twoInch: null },
+  { size: '10x15', width: 10, height: 15, halfInch: null, oneInch: 490, oneAndHalfInch: null, twoInch: null },
+  { size: '12x15', width: 12, height: 15, halfInch: null, oneInch: 590, oneAndHalfInch: 675, twoInch: null },
+  { size: '12x18', width: 12, height: 18, halfInch: null, oneInch: 700, oneAndHalfInch: 810, twoInch: null },
+  { size: '12x20', width: 12, height: 20, halfInch: null, oneInch: 780, oneAndHalfInch: 900, twoInch: null },
+  { size: '12x24', width: 12, height: 24, halfInch: null, oneInch: 940, oneAndHalfInch: 1080, twoInch: null },
+  { size: '16x20', width: 16, height: 20, halfInch: null, oneInch: 1050, oneAndHalfInch: 1200, twoInch: 1280 },
+  { size: '16x24', width: 16, height: 24, halfInch: null, oneInch: 1250, oneAndHalfInch: 1440, twoInch: 1540 },
+  { size: '20x24', width: 20, height: 24, halfInch: null, oneInch: 1560, oneAndHalfInch: 1800, twoInch: 1920 },
+  { size: '20x30', width: 20, height: 30, halfInch: null, oneInch: 1950, oneAndHalfInch: 2250, twoInch: 2400 },
+  { size: '24x30', width: 24, height: 30, halfInch: null, oneInch: 2340, oneAndHalfInch: 2700, twoInch: 2880 },
+  { size: '24x36', width: 24, height: 36, halfInch: null, oneInch: 2810, oneAndHalfInch: 3240, twoInch: 3460 },
+  { size: '36x30', width: 36, height: 30, halfInch: null, oneInch: 3510, oneAndHalfInch: 4050, twoInch: 4320 },
+  { size: '36x40', width: 36, height: 40, halfInch: null, oneInch: 4680, oneAndHalfInch: 5400, twoInch: 5760 },
+  { size: '36x60', width: 36, height: 60, halfInch: null, oneInch: 7020, oneAndHalfInch: 8100, twoInch: 8640 },
+];

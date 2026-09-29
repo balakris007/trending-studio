@@ -1041,6 +1041,33 @@ export async function deleteFramePriceFromFirestore(id: string): Promise<void> {
   await deleteDoc(doc(firestore, 'frame_prices', id));
 }
 
+export async function getFirestorePrintWithFrameMatrix(): Promise<any[]> {
+  try {
+    const docSnap = await getDoc(doc(firestore, 'print_with_frame_prices', 'matrix_all'));
+    if (docSnap.exists() && docSnap.data()?.matrix) {
+      return docSnap.data().matrix;
+    }
+  } catch (err) {
+    console.warn('[Firestore] getFirestorePrintWithFrameMatrix error:', err);
+  }
+  return [];
+}
+
+export async function savePrintWithFrameMatrixToFirestore(matrix: any[]): Promise<void> {
+  await setDoc(
+    doc(firestore, 'print_with_frame_prices', 'matrix_all'),
+    {
+      id: 'matrix_all',
+      title: 'Trending Studio Print with Frame Price List',
+      store: 'Trending Studio Karaikudi',
+      columns: ['Size', 'Half Inch (0.5")', '1 Inch (1.0")', '1/2 Half Inch (1.5")', '2 Inch (2.0")'],
+      matrix,
+      updatedAt: new Date().toISOString(),
+    },
+    { merge: true }
+  );
+}
+
 // ----------------------------------------------------------------------
 // 6. Settings & Business Configuration
 // ----------------------------------------------------------------------

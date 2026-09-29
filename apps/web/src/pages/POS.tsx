@@ -11,6 +11,8 @@ import {
   calculatePhotoPrintPrice,
   calculateCustomFramePrice,
   INITIAL_PHOTO_PRINT_PRICES,
+  PRINT_WITH_FRAME_PRICE_MATRIX,
+  IPrintWithFrameMatrixRow,
 } from '@trending-studio/pricing-engine';
 import { formatINR, formatISTDateTime } from '@trending-studio/utils';
 import {
@@ -63,8 +65,14 @@ export const POS: React.FC = () => {
   const [printQty, setPrintQty] = useState(1);
   const [printFinish, setPrintFinish] = useState<PaperFinish>(PaperFinish.GLOSSY);
   const [printLamination, setPrintLamination] = useState<LaminationType>(LaminationType.NONE);
+  const [photoCatalog, setPhotoCatalog] = useState<any[]>(INITIAL_PHOTO_PRINT_PRICES);
 
-  // Custom Frame Calculator State
+  // Print with Frame & Custom Frame State
+  const [frameMode, setFrameMode] = useState<'MATRIX' | 'CUSTOM'>('MATRIX');
+  const [pwfMatrix, setPwfMatrix] = useState<IPrintWithFrameMatrixRow[]>(PRINT_WITH_FRAME_PRICE_MATRIX);
+  const [pwfSelectedSize, setPwfSelectedSize] = useState<string>('12x18');
+  const [pwfSelectedMoulding, setPwfSelectedMoulding] = useState<'halfInch' | 'oneInch' | 'oneAndHalfInch' | 'twoInch'>('oneInch');
+  const [pwfQty, setPwfQty] = useState<number>(1);
   const [frameWidth, setFrameWidth] = useState(12);
   const [frameHeight, setFrameHeight] = useState(18);
   const [frameRatePerInch, setFrameRatePerInch] = useState(7);
@@ -105,9 +113,11 @@ export const POS: React.FC = () => {
 
       // 2. Fetch fresh catalog from API or Cloud Firestore
       try {
-        const [freshProds, freshCusts] = await Promise.all([
+        const [freshProds, freshCusts, freshMatrix, freshPhotos] = await Promise.all([
           dataService.getProducts(),
           dataService.getCustomers(),
+          dataService.getPrintWithFrameMatrix(),
+          dataService.getPhotoPrintPrices(),
         ]);
 
         if (freshProds.length > 0) {
@@ -118,6 +128,19 @@ export const POS: React.FC = () => {
           if (!selectedCustomer) {
             setSelectedCustomer(freshCusts[0]);
           }
+        }
+        if (freshMatrix && Array.isArray(freshMatrix) && freshMatrix.length > 0) {
+          setPwfMatrix(freshMatrix);
+        }
+        if (freshPhotos && Array.isArray(freshPhotos) && freshPhotos.length > 0) {
+          setPhotoCatalog(
+            freshPhotos.map((p: any) => ({
+              size: p.size,
+              width: p.widthInches,
+              height: p.heightInches,
+              price: p.basePrice,
+            }))
+          );
         }
       } catch (err) {
         console.warn('[POS] Catalog loading fallback error:', err);
@@ -181,11 +204,13 @@ export const POS: React.FC = () => {
 
   // Add Custom Photo Print to Cart
   const handleAddPhotoPrint = () => {
+    const catItem = photoCatalog.find((p) => p.size.toLowerCase() === printSize.toLowerCase());
     const priceRes = calculatePhotoPrintPrice({
       size: printSize,
       quantity: printQty,
       paperFinish: printFinish,
       lamination: printLamination,
+      customBasePrice: catItem ? catItem.price : undefined,
     });
 
     setCartItems([
@@ -205,6 +230,46 @@ export const POS: React.FC = () => {
           size: printSize,
           finish: printFinish,
           lamination: printLamination,
+        },
+      },
+    ]);
+  };
+
+  // Add Print with Frame (Matrix) to Cart
+  const handleAddMatrixFrame = () => {
+    const activeRow = pwfMatrix.find((r) => r.size.toLowerCase() === pwfSelectedSize.toLowerCase()) || pwfMatrix[0];
+    const unitPrice = activeRow ? activeRow[pwfSelectedMoulding] : null;
+
+    if (!unitPrice) {
+      alert(`The selected moulding size is not available for ${pwfSelectedSize}. Please pick an available moulding width.`);
+      return;
+    }
+
+    const mouldingLabels: Record<string, string> = {
+      halfInch: '0.5" Moulding (Half Inch)',
+      oneInch: '1.0" Moulding (1 Inch)',
+      oneAndHalfInch: '1.5" Moulding (1/2 Half Inch)',
+      twoInch: '2.0" Moulding (2 Inch)',
+    };
+    const mouldingLabel = mouldingLabels[pwfSelectedMoulding] || pwfSelectedMoulding;
+
+    setCartItems([
+      ...cartItems,
+      {
+        id: `pwf_${Date.now()}`,
+        itemType: 'FRAME',
+        name: `Print with Frame ${activeRow.size} (${mouldingLabel})`,
+        hsnSac: '4414',
+        quantity: pwfQty,
+        unitPrice,
+        discountAmount: 0,
+        gstRate: 18,
+        metadata: {
+          size: activeRow.size,
+          width: activeRow.width,
+          height: activeRow.height,
+          moulding: mouldingLabel,
+          isMatrixPrice: true,
         },
       },
     ]);
@@ -508,18 +573,18 @@ export const POS: React.FC = () => {
                 1. Select Photo Print Size (Trending Studio Authentic Matrix)
               </label>
               <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-                {INITIAL_PHOTO_PRINT_PRICES.map((item) => (
+                {photoCatalog.map((item) => (
                   <button
                     key={item.size}
                     type="button"
                     onClick={() => setPrintSize(item.size)}
                     className={`p-2.5 rounded-xl border text-center transition-all ${
-                      printSize === item.size
+                      printSize.toLowerCase() === item.size.toLowerCase()
                         ? 'bg-pink-600 border-pink-500 text-white font-bold shadow-md shadow-pink-600/30'
                         : 'bg-slate-800/70 border-slate-700 text-slate-300 hover:bg-slate-800'
                     }`}
                   >
-                    <p className="text-xs uppercase">{item.size}</p>
+                    <p className="text-xs uppercase font-mono">{item.size}</p>
                     <p className="text-[11px] text-pink-300 font-bold mt-0.5">₹{item.price}</p>
                   </button>
                 ))}
@@ -593,85 +658,238 @@ export const POS: React.FC = () => {
           </div>
         )}
 
-        {/* TAB 3: CUSTOM FRAME CALCULATOR */}
+        {/* TAB 3: FRAMING OPTIONS */}
         {activeTab === 'FRAMES' && (
-          <div className="flex-1 p-5 overflow-y-auto space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1">
-                  Width (Inches)
-                </label>
-                <input
-                  type="number"
-                  min="4"
-                  max="72"
-                  value={frameWidth}
-                  onChange={(e) => setFrameWidth(Number(e.target.value))}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1">
-                  Height (Inches)
-                </label>
-                <input
-                  type="number"
-                  min="4"
-                  max="72"
-                  value={frameHeight}
-                  onChange={(e) => setFrameHeight(Number(e.target.value))}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-300 mb-1">
-                Moulding Type / Style
-              </label>
-              <select
-                value={frameRatePerInch}
-                onChange={(e) => setFrameRatePerInch(Number(e.target.value))}
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white"
-              >
-                <option value={7}>Teak Wood Synthetic Moulding (₹7.00 / running inch)</option>
-                <option value={9.5}>Royal Classic Gold Ornate (₹9.50 / running inch)</option>
-                <option value={6}>Sleek Minimalist Matte Black (₹6.00 / running inch)</option>
-                <option value={12}>3D Deep Shadow Box for Collages (₹12.00 / running inch)</option>
-              </select>
-            </div>
-
-            <div className="flex items-center space-x-6 pt-2">
-              <label className="flex items-center space-x-2 text-xs font-semibold text-slate-300 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={frameHasGlass}
-                  onChange={(e) => setFrameHasGlass(e.target.checked)}
-                  className="rounded text-indigo-600 focus:ring-0 w-4 h-4 bg-slate-950"
-                />
-                <span>Include Glass Front</span>
-              </label>
-
-              <label className="flex items-center space-x-2 text-xs font-semibold text-slate-300 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={frameHasMount}
-                  onChange={(e) => setFrameHasMount(e.target.checked)}
-                  className="rounded text-indigo-600 focus:ring-0 w-4 h-4 bg-slate-950"
-                />
-                <span>Include White Mount Board (2-inch border)</span>
-              </label>
-            </div>
-
-            <div className="pt-4 border-t border-slate-800 flex justify-end">
+          <div className="flex-1 p-5 overflow-y-auto space-y-5">
+            {/* Mode Switcher */}
+            <div className="flex items-center gap-2 bg-slate-950 p-1.5 rounded-2xl border border-slate-800">
               <button
-                onClick={handleAddFrame}
-                className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2.5 rounded-xl font-bold text-sm shadow-md shadow-indigo-600/30 transition-transform active:scale-95"
+                type="button"
+                onClick={() => setFrameMode('MATRIX')}
+                className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all ${
+                  frameMode === 'MATRIX'
+                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
+                    : 'text-slate-400 hover:text-white'
+                }`}
               >
-                + Add Custom Frame to Bill
+                Standard Print with Frame (Official 19 Sizes)
+              </button>
+              <button
+                type="button"
+                onClick={() => setFrameMode('CUSTOM')}
+                className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all ${
+                  frameMode === 'CUSTOM'
+                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Custom Framing Calculator
               </button>
             </div>
+
+            {frameMode === 'MATRIX' ? (
+              <div className="space-y-5">
+                {/* 1. Size Grid */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 mb-2">
+                    1. Select Frame Size ({pwfMatrix.length} Standard Sizes)
+                  </label>
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                    {pwfMatrix.map((row) => (
+                      <button
+                        key={row.size}
+                        type="button"
+                        onClick={() => {
+                          setPwfSelectedSize(row.size);
+                          if (row[pwfSelectedMoulding] === null) {
+                            if (row.oneInch !== null) setPwfSelectedMoulding('oneInch');
+                            else if (row.halfInch !== null) setPwfSelectedMoulding('halfInch');
+                            else if (row.oneAndHalfInch !== null) setPwfSelectedMoulding('oneAndHalfInch');
+                            else if (row.twoInch !== null) setPwfSelectedMoulding('twoInch');
+                          }
+                        }}
+                        className={`p-2.5 rounded-xl border text-center transition-all ${
+                          pwfSelectedSize.toLowerCase() === row.size.toLowerCase()
+                            ? 'bg-indigo-600 border-indigo-500 text-white font-bold shadow-md shadow-indigo-600/30'
+                            : 'bg-slate-800/70 border-slate-700 text-slate-300 hover:bg-slate-800'
+                        }`}
+                      >
+                        <p className="text-xs uppercase font-mono">{row.size}</p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">{row.width}"×{row.height}"</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 2. Moulding Width Selector */}
+                {(() => {
+                  const activeRow = pwfMatrix.find((r) => r.size.toLowerCase() === pwfSelectedSize.toLowerCase()) || pwfMatrix[0];
+                  const mouldingOpts: Array<{ key: 'halfInch' | 'oneInch' | 'oneAndHalfInch' | 'twoInch'; label: string; sub: string }> = [
+                    { key: 'halfInch', label: '0.5" Width', sub: 'Half Inch' },
+                    { key: 'oneInch', label: '1.0" Width', sub: '1 Inch' },
+                    { key: 'oneAndHalfInch', label: '1.5" Width', sub: '1/2 Half Inch' },
+                    { key: 'twoInch', label: '2.0" Width', sub: '2 Inch' },
+                  ];
+
+                  const currentPrice = activeRow ? activeRow[pwfSelectedMoulding] : null;
+
+                  return (
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-300 mb-2">
+                          2. Select Moulding Width for {activeRow?.size}
+                        </label>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          {mouldingOpts.map((opt) => {
+                            const price = activeRow ? activeRow[opt.key] : null;
+                            const isAvailable = price !== null;
+                            const isSelected = pwfSelectedMoulding === opt.key;
+
+                            return (
+                              <button
+                                key={opt.key}
+                                type="button"
+                                disabled={!isAvailable}
+                                onClick={() => setPwfSelectedMoulding(opt.key)}
+                                className={`p-3 rounded-2xl border text-left transition-all ${
+                                  !isAvailable
+                                    ? 'opacity-30 border-slate-800 bg-slate-950 cursor-not-allowed text-slate-600'
+                                    : isSelected
+                                    ? 'bg-indigo-600 border-indigo-400 text-white font-bold shadow-lg shadow-indigo-600/30'
+                                    : 'bg-slate-900 border-slate-800 hover:border-slate-700 text-slate-300'
+                                }`}
+                              >
+                                <div className="text-xs font-bold">{opt.label}</div>
+                                <div className="text-[10px] text-slate-400 mt-0.5">{opt.sub}</div>
+                                <div className={`text-base font-black mt-2 ${isSelected ? 'text-amber-300' : 'text-emerald-400'}`}>
+                                  {isAvailable ? `₹${price}` : 'Not Available'}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Quantity & Add Button */}
+                      <div className="flex items-center justify-between pt-4 border-t border-slate-800">
+                        <div className="flex items-center space-x-3">
+                          <span className="text-xs font-bold text-slate-300">Quantity:</span>
+                          <div className="flex items-center space-x-2 bg-slate-950 border border-slate-700 rounded-xl p-1">
+                            <button
+                              type="button"
+                              onClick={() => setPwfQty(Math.max(1, pwfQty - 1))}
+                              className="w-7 h-7 rounded-lg bg-slate-800 text-white flex items-center justify-center font-bold"
+                            >
+                              -
+                            </button>
+                            <span className="w-8 text-center text-xs font-bold text-white">{pwfQty}</span>
+                            <button
+                              type="button"
+                              onClick={() => setPwfQty(pwfQty + 1)}
+                              className="w-7 h-7 rounded-lg bg-slate-800 text-white flex items-center justify-center font-bold"
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={handleAddMatrixFrame}
+                          disabled={currentPrice === null}
+                          className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white px-6 py-2.5 rounded-xl font-bold text-sm shadow-md shadow-indigo-600/30 transition-transform active:scale-95 flex items-center gap-2"
+                        >
+                          <Sparkles className="w-4 h-4" />
+                          <span>
+                            + Add Print with Frame ({currentPrice ? `₹${currentPrice * pwfQty}` : 'Select Available Size'})
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            ) : (
+              /* Custom Dimension Calculator Form */
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1">
+                      Width (Inches)
+                    </label>
+                    <input
+                      type="number"
+                      min="4"
+                      max="72"
+                      value={frameWidth}
+                      onChange={(e) => setFrameWidth(Number(e.target.value))}
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1">
+                      Height (Inches)
+                    </label>
+                    <input
+                      type="number"
+                      min="4"
+                      max="72"
+                      value={frameHeight}
+                      onChange={(e) => setFrameHeight(Number(e.target.value))}
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">
+                    Moulding Type / Style
+                  </label>
+                  <select
+                    value={frameRatePerInch}
+                    onChange={(e) => setFrameRatePerInch(Number(e.target.value))}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white"
+                  >
+                    <option value={7}>Teak Wood Synthetic Moulding (₹7.00 / running inch)</option>
+                    <option value={9.5}>Royal Classic Gold Ornate (₹9.50 / running inch)</option>
+                    <option value={6}>Sleek Minimalist Matte Black (₹6.00 / running inch)</option>
+                    <option value={12}>3D Deep Shadow Box for Collages (₹12.00 / running inch)</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center space-x-6 pt-2">
+                  <label className="flex items-center space-x-2 text-xs font-semibold text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={frameHasGlass}
+                      onChange={(e) => setFrameHasGlass(e.target.checked)}
+                      className="rounded text-indigo-600 focus:ring-0 w-4 h-4 bg-slate-950"
+                    />
+                    <span>Include Glass Front</span>
+                  </label>
+
+                  <label className="flex items-center space-x-2 text-xs font-semibold text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={frameHasMount}
+                      onChange={(e) => setFrameHasMount(e.target.checked)}
+                      className="rounded text-indigo-600 focus:ring-0 w-4 h-4 bg-slate-950"
+                    />
+                    <span>Include White Mount Board (2-inch border)</span>
+                  </label>
+                </div>
+
+                <div className="pt-4 border-t border-slate-800 flex justify-end">
+                  <button
+                    onClick={handleAddFrame}
+                    className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2.5 rounded-xl font-bold text-sm shadow-md shadow-indigo-600/30 transition-transform active:scale-95"
+                  >
+                    + Add Custom Frame to Bill
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
         {/* Mobile Floating Cart Summary Button in Catalog Mode */}
