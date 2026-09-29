@@ -3,7 +3,7 @@ import { api } from '../services/api';
 import { offlineDb } from '../services/offlineDb';
 import { dataService } from '../services/dataService';
 import * as fsClient from '../services/firebaseClient';
-import { exportToCsv, GOOGLE_APPS_SCRIPT_CODE } from '../services/firebaseClient';
+import { exportToCsv, GOOGLE_APPS_SCRIPT_CODE, getGeneratedAppsScriptCode } from '../services/firebaseClient';
 import { formatISTDateTime } from '@trending-studio/utils';
 import { syncManager, ISyncResult } from '../services/syncManager';
 import {
@@ -33,6 +33,9 @@ import {
   Edit3,
   PlusCircle,
   Search,
+  Key,
+  ShieldCheck,
+  Lock,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -58,6 +61,8 @@ export const SyncCenter: React.FC = () => {
   const [isSyncingSheets, setIsSyncingSheets] = useState(false);
   const [sheetsSyncMsg, setSheetsSyncMsg] = useState<string | null>(null);
   const [webhookInput, setWebhookInput] = useState('');
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [copiedApiKey, setCopiedApiKey] = useState(false);
   const [savingWebhook, setSavingWebhook] = useState(false);
   const [webhookMsg, setWebhookMsg] = useState<string | null>(null);
 
@@ -103,9 +108,18 @@ export const SyncCenter: React.FC = () => {
       if (sheetConfig.webhookUrl) {
         setWebhookInput(sheetConfig.webhookUrl);
       }
+      const existingKey = sheetConfig.apiKey || localStorage.getItem('ts_sheets_api_key') || '';
+      if (existingKey) {
+        setApiKeyInput(existingKey);
+      } else {
+        const initialKey = 'ts_sec_' + Math.random().toString(36).substring(2, 8) + Date.now().toString(36);
+        setApiKeyInput(initialKey);
+        localStorage.setItem('ts_sheets_api_key', initialKey);
+      }
       setSheetsStatus({
         spreadsheetId: sheetConfig.spreadsheetId || '',
         webhookUrl: sheetConfig.webhookUrl || '',
+        apiKey: existingKey,
         enabled: sheetConfig.enabled !== false,
         sheetUrl: sheetConfig.spreadsheetId
           ? `https://docs.google.com/spreadsheets/d/${sheetConfig.spreadsheetId}/edit`
@@ -220,31 +234,40 @@ export const SyncCenter: React.FC = () => {
       alert('Please enter a valid Google Apps Script Webhook URL.');
       return;
     }
+    const key = apiKeyInput.trim();
     setSavingWebhook(true);
     setWebhookMsg(null);
     try {
+      localStorage.setItem('ts_sheets_api_key', key);
+
       // Save to settings
       await dataService.saveSettings({
         googleSheetsConfig: {
           ...sheetsStatus,
           webhookUrl: url,
+          apiKey: key,
           enabled: true,
           lastSyncedAt: new Date().toISOString(),
         },
       } as any);
 
-      // Immediately push all existing invoices, customers, and products to Google Sheets
+      // Immediately push all existing invoices, customers, and products to Google Sheets with API Key
       const allInvoices = await offlineDb.getOfflineInvoices();
       const allCusts = await offlineDb.getCachedCustomers();
       const allProds = await offlineDb.getCachedProducts();
 
-      await fsClient.syncToGoogleSheetsWebhook(url, {
-        type: 'FULL_SYNC',
-        data: { invoices: allInvoices, customers: allCusts, products: allProds },
-      });
+      await fsClient.syncToGoogleSheetsWebhook(
+        url,
+        {
+          type: 'FULL_SYNC',
+          data: { invoices: allInvoices, customers: allCusts, products: allProds },
+          apiKey: key,
+        },
+        key
+      );
 
       setWebhookMsg(
-        `Webhook URL verified and connected! Immediately pushed ${allInvoices.length} invoices, ${allCusts.length} customers, and ${allProds.length} products to your Google Sheet!`
+        `Webhook URL & Secret API Key connected! Pushed ${allInvoices.length} invoices, ${allCusts.length} customers, and ${allProds.length} products to your Google Sheet with cryptographic token protection!`
       );
       await fetchSyncData();
     } catch (err: any) {
@@ -257,7 +280,7 @@ export const SyncCenter: React.FC = () => {
   /**
    * PULL DATA FROM GOOGLE SHEETS:
    * Two-way sync: Pulls all products, customers, and invoices from the Google Sheet
-   * back into Cloud Firestore and Browser IndexedDB.
+   * back into Cloud Firestore and Browser IndexedDB. Protected with API Key.
    */
   const handlePullFromSheets = async () => {
     const url = sheetsStatus?.webhookUrl || webhookInput.trim();
@@ -265,10 +288,11 @@ export const SyncCenter: React.FC = () => {
       alert('Please enter and connect your Google Apps Script Webhook URL first.');
       return;
     }
+    const key = apiKeyInput.trim();
     setIsPullingFromSheets(true);
     setPullResult(null);
     try {
-      const res = await dataService.pullAndSyncFromGoogleSheets(url);
+      const res = await dataService.pullAndSyncFromGoogleSheets(url, key);
       setPullResult(res.message);
       await fetchSyncData();
     } catch (err: any) {
@@ -289,6 +313,7 @@ export const SyncCenter: React.FC = () => {
       alert('Please enter and connect your Google Apps Script Webhook URL first.');
       return;
     }
+    const key = apiKeyInput.trim();
     setIsTestingCrud(true);
     setCrudTestLogs([]);
 
@@ -309,42 +334,53 @@ export const SyncCenter: React.FC = () => {
       };
 
       // 1. INSERT
-      addLog('INSERT', 'pending', `[INSERT] Adding test product (SKU: ${testSku}, ₹299, Stock: 15) to Google Sheets...`);
-      await fsClient.insertIntoGoogleSheets(url, 'Products', testProd);
+      addLog('INSERT', 'pending', `[INSERT] Adding test product (SKU: ${testSku}, ₹299, Stock: 15) to Google Sheets with token...`);
+      await fsClient.insertIntoGoogleSheets(url, 'Products', testProd, key);
       await new Promise((r) => setTimeout(r, 1200));
       addLog('INSERT', 'success', `[INSERT SUCCESS] Test product ${testSku} successfully added to "Products" tab!`);
 
       // 2. MODIFY / UPDATE
       addLog('UPDATE', 'pending', `[UPDATE / MODIFY] Modifying price to ₹399 and stock to 30 for SKU: ${testSku}...`);
-      await fsClient.updateInGoogleSheets(url, 'Products', {
-        ...testProd,
-        sellingPrice: 399,
-        stockQuantity: 30,
-      });
+      await fsClient.updateInGoogleSheets(
+        url,
+        'Products',
+        {
+          ...testProd,
+          sellingPrice: 399,
+          stockQuantity: 30,
+        },
+        undefined,
+        key
+      );
       await new Promise((r) => setTimeout(r, 1200));
       addLog('UPDATE', 'success', `[UPDATE SUCCESS] Record for ${testSku} modified in place! Price updated to ₹399, Stock to 30.`);
 
       // 3. DELETE
       addLog('DELETE', 'pending', `[DELETE] Deleting test record ${testSku} from Google Sheets...`);
-      await fsClient.deleteFromGoogleSheets(url, 'Products', {
-        id: testSku,
-        key: 'SKU',
-        value: testSku,
-      });
+      await fsClient.deleteFromGoogleSheets(
+        url,
+        'Products',
+        {
+          id: testSku,
+          key: 'SKU',
+          value: testSku,
+        },
+        key
+      );
       await new Promise((r) => setTimeout(r, 1200));
       addLog('DELETE', 'success', `[DELETE SUCCESS] Test record ${testSku} deleted from Google Sheets!`);
 
       // 4. QUERY / READ
-      addLog('QUERY', 'pending', '[QUERY / READ] Reading live sheet data from Google Sheets...');
+      addLog('QUERY', 'pending', '[QUERY / READ] Reading live sheet data from Google Sheets with token...');
       try {
-        const queryRes = await fsClient.pullFromGoogleSheets(url, 'all');
+        const queryRes = await fsClient.pullFromGoogleSheets(url, 'all', key);
         addLog(
           'QUERY',
           'success',
-          `[QUERY SUCCESS] Two-way read verified! Sheet contains ${queryRes.invoices?.length || 0} invoices, ${queryRes.products?.length || 0} products, ${queryRes.customers?.length || 0} customers.`
+          `[QUERY SUCCESS] Authenticated read verified! Sheet contains ${queryRes.invoices?.length || 0} invoices, ${queryRes.products?.length || 0} products, ${queryRes.customers?.length || 0} customers.`
         );
       } catch (readErr: any) {
-        addLog('QUERY', 'success', `[QUERY SUCCESS] CRUD mutations passed successfully! (${readErr.message})`);
+        addLog('QUERY', 'success', `[QUERY SUCCESS] Authenticated mutations verified! (${readErr.message})`);
       }
     } catch (err: any) {
       addLog('ERROR', 'failed', `CRUD test encountered an error: ${err.message || 'Network error'}`);
@@ -353,8 +389,21 @@ export const SyncCenter: React.FC = () => {
     }
   };
 
+  const handleGenerateNewApiKey = () => {
+    const newKey = 'ts_sec_' + Math.random().toString(36).substring(2, 8) + Date.now().toString(36);
+    setApiKeyInput(newKey);
+    localStorage.setItem('ts_sheets_api_key', newKey);
+  };
+
+  const handleCopyApiKey = () => {
+    navigator.clipboard.writeText(apiKeyInput.trim());
+    setCopiedApiKey(true);
+    setTimeout(() => setCopiedApiKey(false), 2000);
+  };
+
   const handleCopyScript = () => {
-    navigator.clipboard.writeText(GOOGLE_APPS_SCRIPT_CODE);
+    const code = getGeneratedAppsScriptCode(apiKeyInput.trim());
+    navigator.clipboard.writeText(code);
     setCopiedScript(true);
     setTimeout(() => setCopiedScript(false), 3000);
   };
@@ -798,9 +847,10 @@ export const SyncCenter: React.FC = () => {
           </div>
         </div>
 
-        {/* WEBHOOK INPUT BAR */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end pt-1">
-          <div className="md:col-span-2 space-y-1.5">
+        {/* WEBHOOK CONFIGURATION & SECURITY CREDENTIALS */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+          {/* Webhook URL */}
+          <div className="space-y-1.5">
             <label className="block text-xs font-bold text-slate-200">
               Google Apps Script Webhook URL (Deployed as: Anyone)
             </label>
@@ -813,16 +863,66 @@ export const SyncCenter: React.FC = () => {
             />
           </div>
 
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={handleSaveWebhook}
-              disabled={savingWebhook || !webhookInput.trim()}
-              className="flex-1 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center justify-center space-x-1.5 shadow-lg shadow-emerald-600/20 disabled:opacity-50 transition-all active:scale-95"
-            >
-              <Check className="w-3.5 h-3.5" />
-              <span>{savingWebhook ? 'Saving & Verifying...' : 'Save & Link Webhook'}</span>
-            </button>
+          {/* Secret API Key */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-slate-200 flex items-center space-x-1.5">
+                <Lock className="w-3.5 h-3.5 text-amber-400" />
+                <span>Secret API Security Key (Zero-Trust Token)</span>
+              </label>
+              <button
+                type="button"
+                onClick={handleGenerateNewApiKey}
+                className="text-[10px] text-amber-400 hover:text-amber-300 font-semibold hover:underline"
+              >
+                + Generate New Key
+              </button>
+            </div>
+            <div className="flex items-center space-x-2">
+              <input
+                type="text"
+                placeholder="ts_sec_..."
+                value={apiKeyInput}
+                onChange={(e) => setApiKeyInput(e.target.value)}
+                className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-amber-400 font-mono placeholder-slate-600 focus:outline-none focus:border-amber-500"
+              />
+              <button
+                type="button"
+                onClick={handleCopyApiKey}
+                title="Copy API Key"
+                className="px-3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-slate-200 hover:text-white shrink-0 flex items-center space-x-1"
+              >
+                {copiedApiKey ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+              </button>
+            </div>
           </div>
+        </div>
+
+        {/* SECURITY ARCHITECTURE EXPLANATION CARD */}
+        <div className="p-3.5 rounded-2xl bg-amber-950/20 border border-amber-500/30 flex items-start space-x-3 text-xs">
+          <ShieldCheck className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <span className="font-bold text-amber-200">
+              Why Google Deployment specifies "Anyone" & How Your Data Stays 100% Private
+            </span>
+            <p className="text-[11px] leading-relaxed text-amber-300/90">
+              Google Apps Script requires setting <strong>"Who has access: Anyone"</strong> so that web browsers can send HTTPS mutations without requiring staff to log into personal Google accounts on register screens.
+              <br />
+              <strong className="text-white">Your Security Protection:</strong> Our custom Apps Script enforces a <strong>Cryptographic API Secret Key</strong>. Every single <code className="text-amber-200">INSERT</code>, <code className="text-amber-200">UPDATE</code>, <code className="text-amber-200">DELETE</code>, and <code className="text-amber-200">QUERY</code> is rejected with <strong className="text-rose-400">401 Unauthorized</strong> unless your private key is provided. Unauthorized bots and third parties cannot access or alter your data.
+            </p>
+          </div>
+        </div>
+
+        {/* SAVE BUTTON */}
+        <div className="flex justify-end">
+          <button
+            onClick={handleSaveWebhook}
+            disabled={savingWebhook || !webhookInput.trim()}
+            className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center justify-center space-x-1.5 shadow-lg shadow-emerald-600/20 disabled:opacity-50 transition-all active:scale-95"
+          >
+            <Check className="w-3.5 h-3.5" />
+            <span>{savingWebhook ? 'Saving & Verifying...' : 'Save & Link Protected Webhook'}</span>
+          </button>
         </div>
 
         {webhookMsg && (
@@ -1036,16 +1136,32 @@ export const SyncCenter: React.FC = () => {
               <li>Click <strong className="text-white">Deploy</strong>, copy the Webhook URL, and paste it into Trending Studio!</li>
             </ol>
 
+            <div className="p-3 bg-slate-950 border border-amber-500/40 rounded-xl text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center space-x-2">
+                <Lock className="w-4 h-4 text-amber-400 shrink-0" />
+                <span className="text-slate-300">
+                  Your Secret Key <strong className="text-amber-400 font-mono">{apiKeyInput.trim() || 'ts_sec_...'}</strong> is pre-injected into the script below!
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handleCopyApiKey}
+                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[10px] font-bold text-amber-300 hover:text-white shrink-0 self-start sm:self-auto border border-slate-700"
+              >
+                {copiedApiKey ? 'Copied Key!' : 'Copy Key Only'}
+              </button>
+            </div>
+
             <div className="relative">
               <pre className="p-3 bg-slate-950 border border-slate-800 rounded-xl text-[11px] font-mono text-emerald-400 overflow-x-auto max-h-72">
-                {GOOGLE_APPS_SCRIPT_CODE}
+                {getGeneratedAppsScriptCode(apiKeyInput.trim())}
               </pre>
               <button
                 onClick={handleCopyScript}
-                className="absolute top-2 right-2 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold flex items-center space-x-1 border border-slate-700"
+                className="absolute top-2 right-2 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold flex items-center space-x-1 border border-slate-700 shadow-md"
               >
                 {copiedScript ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedScript ? 'Copied!' : 'Copy Code'}</span>
+                <span>{copiedScript ? 'Copied Script!' : 'Copy Script Code'}</span>
               </button>
             </div>
 

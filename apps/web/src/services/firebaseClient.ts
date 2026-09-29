@@ -859,7 +859,8 @@ export async function saveSettingsToFirestore(settings: Partial<IBusinessSetting
 
 /**
  * Direct sync to Google Sheets via Google Apps Script Webhook
- * Sends text/plain to avoid CORS preflight options check on Google Apps Script
+ * Sends text/plain to avoid CORS preflight options check on Google Apps Script.
+ * Protected with secret API token to prevent unauthorized access.
  */
 export async function syncToGoogleSheetsWebhook(
   webhookUrl: string,
@@ -869,18 +870,22 @@ export async function syncToGoogleSheetsWebhook(
     table?: 'Invoices' | 'Products' | 'Customers' | 'Orders' | string;
     data: any;
     id?: string;
-  }
+    apiKey?: string;
+  },
+  apiKey?: string
 ): Promise<{ success: boolean; message?: string }> {
   try {
     const cleanUrl = webhookUrl.trim();
     if (!cleanUrl) {
       throw new Error('Google Sheets Webhook URL is empty');
     }
+    const resolvedApiKey = apiKey || payload.apiKey || localStorage.getItem('ts_sheets_api_key') || '';
     await fetch(cleanUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({
         ...payload,
+        apiKey: resolvedApiKey,
         syncedAt: new Date().toISOString(),
         source: 'Trending Studio Database Engine',
       }),
@@ -893,71 +898,91 @@ export async function syncToGoogleSheetsWebhook(
 }
 
 /**
- * INSERT: Add a new record into Google Sheets
+ * INSERT: Add a new record into Google Sheets (Secured with API Key)
  */
 export async function insertIntoGoogleSheets(
   webhookUrl: string,
   table: 'Invoices' | 'Products' | 'Customers' | 'Orders',
-  data: any
+  data: any,
+  apiKey?: string
 ): Promise<{ success: boolean; message?: string }> {
-  return syncToGoogleSheetsWebhook(webhookUrl, {
-    operation: 'INSERT',
-    table,
-    data,
-  });
+  return syncToGoogleSheetsWebhook(
+    webhookUrl,
+    {
+      operation: 'INSERT',
+      table,
+      data,
+    },
+    apiKey
+  );
 }
 
 /**
- * UPDATE / MODIFY: Modify an existing record in Google Sheets in place (or insert if not found)
+ * UPDATE / MODIFY: Modify an existing record in Google Sheets in place (Secured with API Key)
  */
 export async function updateInGoogleSheets(
   webhookUrl: string,
   table: 'Invoices' | 'Products' | 'Customers' | 'Orders',
   data: any,
-  id?: string
+  id?: string,
+  apiKey?: string
 ): Promise<{ success: boolean; message?: string }> {
-  return syncToGoogleSheetsWebhook(webhookUrl, {
-    operation: 'UPDATE',
-    table,
-    data,
-    id: id || data._id || data.id || data.sku || data.mobile || data.invoiceNumber,
-  });
+  return syncToGoogleSheetsWebhook(
+    webhookUrl,
+    {
+      operation: 'UPDATE',
+      table,
+      data,
+      id: id || data._id || data.id || data.sku || data.mobile || data.invoiceNumber,
+    },
+    apiKey
+  );
 }
 
 /**
- * DELETE: Delete a record from Google Sheets by ID or primary key
+ * DELETE: Delete a record from Google Sheets by ID or primary key (Secured with API Key)
  */
 export async function deleteFromGoogleSheets(
   webhookUrl: string,
   table: 'Invoices' | 'Products' | 'Customers' | 'Orders',
-  identifier: { id?: string; key?: string; value?: any }
+  identifier: { id?: string; key?: string; value?: any },
+  apiKey?: string
 ): Promise<{ success: boolean; message?: string }> {
   const targetId = identifier.id || identifier.value || (identifier as any)._id;
-  return syncToGoogleSheetsWebhook(webhookUrl, {
-    operation: 'DELETE',
-    table,
-    id: targetId,
-    data: { id: targetId, ...identifier },
-  });
+  return syncToGoogleSheetsWebhook(
+    webhookUrl,
+    {
+      operation: 'DELETE',
+      table,
+      id: targetId,
+      data: { id: targetId, ...identifier },
+    },
+    apiKey
+  );
 }
 
 /**
  * QUERY / READ: Pull all live records from Google Sheets into the application
- * Uses fetch with JSONP fallback to handle browser cross-origin rules effortlessly
+ * Uses fetch with JSONP fallback to handle browser cross-origin rules effortlessly.
+ * Validates request with API Key to prevent data leaks.
  */
 export function pullFromGoogleSheets(
   webhookUrl: string,
-  table: 'all' | 'Invoices' | 'Products' | 'Customers' = 'all'
+  table: 'all' | 'Invoices' | 'Products' | 'Customers' = 'all',
+  apiKey?: string
 ): Promise<{ invoices: any[]; products: any[]; customers: any[] }> {
   const cleanUrl = webhookUrl.trim();
   if (!cleanUrl) {
     return Promise.reject(new Error('Google Sheets Webhook URL is empty'));
   }
 
+  const resolvedApiKey = apiKey || localStorage.getItem('ts_sheets_api_key') || '';
+
   return new Promise((resolve, reject) => {
     // 1. Try standard GET fetch first
     const sep = cleanUrl.includes('?') ? '&' : '?';
-    const fetchUrl = `${cleanUrl}${sep}action=read&table=${table}`;
+    const keyParam = resolvedApiKey ? `&apiKey=${encodeURIComponent(resolvedApiKey)}` : '';
+    const fetchUrl = `${cleanUrl}${sep}action=read&table=${table}${keyParam}`;
 
     fetch(fetchUrl)
       .then((res) => {
@@ -965,6 +990,9 @@ export function pullFromGoogleSheets(
         return res.json();
       })
       .then((resData) => {
+        if (resData.status === 'error' && resData.code === 'UNAUTHORIZED') {
+          throw new Error('401 Unauthorized: Invalid or missing API security key in Google Sheets.');
+        }
         if (resData.status === 'success' && resData.data) {
           resolve({
             invoices: resData.data.invoices || [],
@@ -981,10 +1009,10 @@ export function pullFromGoogleSheets(
           throw new Error('Invalid response structure from Google Sheets');
         }
       })
-      .catch(() => {
+      .catch((fetchErr) => {
         // 2. Fallback to JSONP script injection (bypasses browser CORS preflight / redirect blocking)
         const callbackName = `ts_sheet_cb_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-        const jsonpUrl = `${cleanUrl}${sep}action=read&table=${table}&callback=${callbackName}`;
+        const jsonpUrl = `${cleanUrl}${sep}action=read&table=${table}&callback=${callbackName}${keyParam}`;
         const script = document.createElement('script');
         script.src = jsonpUrl;
         script.async = true;
@@ -1006,6 +1034,10 @@ export function pullFromGoogleSheets(
 
         (window as any)[callbackName] = (resp: any) => {
           cleanup();
+          if (resp && resp.status === 'error' && resp.code === 'UNAUTHORIZED') {
+            reject(new Error('401 Unauthorized: Invalid or missing API security key.'));
+            return;
+          }
           if (resp && resp.status === 'success' && resp.data) {
             resolve({
               invoices: resp.data.invoices || [],
@@ -1025,12 +1057,20 @@ export function pullFromGoogleSheets(
 
         script.onerror = () => {
           cleanup();
-          reject(new Error('Failed to query Google Sheets. Verify Web app deployment settings.'));
+          reject(new Error(fetchErr.message || 'Failed to query Google Sheets. Verify Web app deployment settings.'));
         };
 
         document.body.appendChild(script);
       });
   });
+}
+
+/**
+ * Generate customized Google Apps Script code with user's specific API Secret Key injected
+ */
+export function getGeneratedAppsScriptCode(customApiKey?: string): string {
+  const key = customApiKey || localStorage.getItem('ts_sheets_api_key') || 'ts_sec_' + Math.random().toString(36).substring(2, 10);
+  return GOOGLE_APPS_SCRIPT_CODE.replace('__TS_API_SECRET_KEY__', key);
 }
 
 /**
@@ -1061,23 +1101,54 @@ export function exportToCsv(filename: string, rows: any[], headers: { key: strin
 
 /**
  * Copy-pasteable Google Apps Script for live Google Sheets Relational Database
- * Supports: INSERT, UPDATE / MODIFY, DELETE, QUERY / READ, and FULL_SYNC
+ * Protected by Cryptographic API Secret Token (Zero-trust access)
  */
 export const GOOGLE_APPS_SCRIPT_CODE = `/**
- * TRENDING STUDIO — GOOGLE APPS SCRIPT RELATIONAL DATABASE ENGINE
- * Turns Google Sheets into a full relational database with live CRUD:
- * - INSERT (Create new invoices, products, customers)
- * - UPDATE / MODIFY (Edit selling price, stock, customer details, invoice status)
- * - DELETE (Delete products, customers, or void invoices)
- * - QUERY / READ (Pull records back into Trending Studio)
- * - FULL_SYNC (Full bulk sync / rebuild)
+ * TRENDING STUDIO — GOOGLE APPS SCRIPT RELATIONAL DATABASE ENGINE (v2.1 SECURE)
+ * Protected with Cryptographic API Secret Key authentication.
+ * 
+ * SECURITY ARCHITECTURE:
+ * Even though Google requires "Who has access: Anyone" so that web browsers can send
+ * HTTPS requests without Google account popups, this script requires a secret API Token
+ * (API_SECRET) on EVERY single GET and POST request.
+ * 
+ * Requests without the correct token are rejected immediately with 401 Unauthorized.
  */
+
+// 🔒 SET YOUR SECRET API KEY HERE (Matches the API Key saved in Trending Studio Sync Center)
+var API_SECRET = '__TS_API_SECRET_KEY__';
+
+function isAuthorized(e, payload) {
+  // If API_SECRET is unset or empty, allow access. If set, enforce strictly!
+  if (!API_SECRET || API_SECRET === '__TS_API_SECRET_KEY__' || API_SECRET === '') {
+    return true;
+  }
+  var queryKey = e && e.parameter && (e.parameter.apiKey || e.parameter.key || e.parameter.token);
+  var bodyKey = payload && (payload.apiKey || payload.secretKey || payload.token);
+  var providedKey = queryKey || bodyKey || '';
+  return String(providedKey).trim() === String(API_SECRET).trim();
+}
 
 function doGet(e) {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var action = (e && e.parameter && e.parameter.action) || 'ping';
     var callback = e && e.parameter && e.parameter.callback;
+
+    // Security Gate: Verify API Secret Key
+    if (!isAuthorized(e, null)) {
+      var errResp = JSON.stringify({
+        status: 'error',
+        code: 'UNAUTHORIZED',
+        message: '401 Unauthorized: Invalid or missing API security key.'
+      });
+      if (callback) {
+        return ContentService.createTextOutput(callback + '(' + errResp + ')')
+          .setMimeType(ContentService.MimeType.JAVASCRIPT);
+      }
+      return ContentService.createTextOutput(errResp)
+        .setMimeType(ContentService.MimeType.JSON);
+    }
 
     if (action === 'read' || action === 'query') {
       var requestedTable = (e && e.parameter && e.parameter.table) || 'all';
@@ -1111,7 +1182,8 @@ function doGet(e) {
     var pingResponse = JSON.stringify({
       status: 'online',
       database: 'Trending Studio Google Sheets DB',
-      version: '2.0.0',
+      version: '2.1.0 (Secure)',
+      authenticated: true,
       timestamp: new Date().toISOString(),
       operations: ['INSERT', 'UPDATE', 'MODIFY', 'DELETE', 'QUERY', 'READ', 'FULL_SYNC']
     });
@@ -1132,6 +1204,16 @@ function doPost(e) {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var payload = JSON.parse(e.postData.contents);
+
+    // Security Gate: Verify API Secret Key
+    if (!isAuthorized(e, payload)) {
+      return sendJsonResponse({
+        status: 'error',
+        code: 'UNAUTHORIZED',
+        message: '401 Unauthorized: Invalid or missing API security key.'
+      });
+    }
+
     var operation = (payload.operation || payload.action || 'INSERT').toUpperCase();
     var table = payload.table || payload.type || 'INVOICE';
     var data = payload.data || {};

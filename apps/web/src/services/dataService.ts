@@ -44,14 +44,19 @@ export const dataService = {
     return prods;
   },
 
-  async getGoogleSheetsWebhookUrl(): Promise<string | null> {
+  async getGoogleSheetsConfig(): Promise<{ webhookUrl: string | null; apiKey: string | null }> {
     try {
       const settings: any = await this.getSettings();
-      if (settings?.googleSheetsConfig?.webhookUrl && settings.googleSheetsConfig.enabled !== false) {
-        return settings.googleSheetsConfig.webhookUrl;
+      const conf = settings?.googleSheetsConfig;
+      if (conf?.webhookUrl && conf.enabled !== false) {
+        return {
+          webhookUrl: conf.webhookUrl,
+          apiKey: conf.apiKey || localStorage.getItem('ts_sheets_api_key') || null,
+        };
       }
     } catch {}
-    return null;
+    const localKey = localStorage.getItem('ts_sheets_api_key') || null;
+    return { webhookUrl: null, apiKey: localKey };
   },
 
   async saveProduct(product: Partial<IProduct>): Promise<IProduct> {
@@ -66,11 +71,11 @@ export const dataService = {
       await offlineDb.saveProductLocally(saved);
     }
 
-    // Google Sheets Real-Time DB Upsert (INSERT / MODIFY)
+    // Google Sheets Real-Time DB Upsert (INSERT / MODIFY) with API Key
     try {
-      const webhookUrl = await this.getGoogleSheetsWebhookUrl();
+      const { webhookUrl, apiKey } = await this.getGoogleSheetsConfig();
       if (webhookUrl) {
-        fsClient.updateInGoogleSheets(webhookUrl, 'Products', saved).catch((e) =>
+        fsClient.updateInGoogleSheets(webhookUrl, 'Products', saved, undefined, apiKey || undefined).catch((e) =>
           console.warn('[DataService] Google Sheets product update notice:', e)
         );
       }
@@ -93,12 +98,12 @@ export const dataService = {
 
     // Sync updated stock to Google Sheets
     try {
-      const webhookUrl = await this.getGoogleSheetsWebhookUrl();
+      const { webhookUrl, apiKey } = await this.getGoogleSheetsConfig();
       if (webhookUrl) {
         const prods = await fsClient.getFirestoreProducts();
         const p = prods.find((item) => (item._id || item.id) === productId);
         if (p) {
-          fsClient.updateInGoogleSheets(webhookUrl, 'Products', p).catch(() => {});
+          fsClient.updateInGoogleSheets(webhookUrl, 'Products', p, undefined, apiKey || undefined).catch(() => {});
         }
       }
     } catch {}
@@ -112,11 +117,11 @@ export const dataService = {
     }
     await offlineDb.deleteProductLocally(productId);
 
-    // Google Sheets Real-time DB Deletion
+    // Google Sheets Real-time DB Deletion with API Key
     try {
-      const webhookUrl = await this.getGoogleSheetsWebhookUrl();
+      const { webhookUrl, apiKey } = await this.getGoogleSheetsConfig();
       if (webhookUrl) {
-        fsClient.deleteFromGoogleSheets(webhookUrl, 'Products', { id: productId, key: 'ID' }).catch((e) =>
+        fsClient.deleteFromGoogleSheets(webhookUrl, 'Products', { id: productId, key: 'ID' }, apiKey || undefined).catch((e) =>
           console.warn('[DataService] Google Sheets product delete notice:', e)
         );
       }
@@ -166,11 +171,11 @@ export const dataService = {
       await offlineDb.saveCustomerLocally(saved);
     }
 
-    // Google Sheets Real-Time DB Upsert (INSERT / MODIFY)
+    // Google Sheets Real-Time DB Upsert (INSERT / MODIFY) with API Key
     try {
-      const webhookUrl = await this.getGoogleSheetsWebhookUrl();
+      const { webhookUrl, apiKey } = await this.getGoogleSheetsConfig();
       if (webhookUrl) {
-        fsClient.updateInGoogleSheets(webhookUrl, 'Customers', saved).catch((e) =>
+        fsClient.updateInGoogleSheets(webhookUrl, 'Customers', saved, undefined, apiKey || undefined).catch((e) =>
           console.warn('[DataService] Google Sheets customer update notice:', e)
         );
       }
@@ -265,12 +270,12 @@ export const dataService = {
       }
     }
 
-    // Real-Time INSERT into Google Sheets Database
+    // Real-Time INSERT into Google Sheets Database (Protected with API Key)
     if (finalInvoice) {
       try {
-        const webhookUrl = await this.getGoogleSheetsWebhookUrl();
+        const { webhookUrl, apiKey } = await this.getGoogleSheetsConfig();
         if (webhookUrl) {
-          fsClient.insertIntoGoogleSheets(webhookUrl, 'Invoices', finalInvoice).catch((e) =>
+          fsClient.insertIntoGoogleSheets(webhookUrl, 'Invoices', finalInvoice, apiKey || undefined).catch((e) =>
             console.warn('[DataService] Auto sheet invoice insert notice:', e)
           );
         }
@@ -289,14 +294,14 @@ export const dataService = {
 
     // Real-Time Google Sheets Status Update for Cancelled/Voided Invoice
     try {
-      const webhookUrl = await this.getGoogleSheetsWebhookUrl();
+      const { webhookUrl, apiKey } = await this.getGoogleSheetsConfig();
       if (webhookUrl) {
         fsClient.updateInGoogleSheets(webhookUrl, 'Invoices', {
           _id: invoiceId,
           invoiceNumber: invoiceId,
           status: 'CANCELLED',
           cancellationReason: reason,
-        }).catch((e) => console.warn('[DataService] Google Sheets invoice cancel notice:', e));
+        }, undefined, apiKey || undefined).catch((e) => console.warn('[DataService] Google Sheets invoice cancel notice:', e));
       }
     } catch {}
   },
@@ -305,18 +310,22 @@ export const dataService = {
    * PULL FROM GOOGLE SHEETS:
    * Two-way sync: Reads all Invoices, Products, and Customers from Google Sheets
    * and synchronizes them into Cloud Firestore & Browser IndexedDB.
+   * Validated with API Security Key.
    */
-  async pullAndSyncFromGoogleSheets(customWebhookUrl?: string): Promise<{
+  async pullAndSyncFromGoogleSheets(customWebhookUrl?: string, customApiKey?: string): Promise<{
     success: boolean;
     pulledCount: { invoices: number; products: number; customers: number };
     message: string;
   }> {
-    const webhookUrl = customWebhookUrl || (await this.getGoogleSheetsWebhookUrl());
+    const { webhookUrl: defaultUrl, apiKey: defaultKey } = await this.getGoogleSheetsConfig();
+    const webhookUrl = customWebhookUrl || defaultUrl;
+    const apiKey = customApiKey || defaultKey;
+
     if (!webhookUrl) {
       throw new Error('Google Sheets Webhook URL is not configured. Please enter your Webhook URL in the Sync Center.');
     }
 
-    const sheetData = await fsClient.pullFromGoogleSheets(webhookUrl);
+    const sheetData = await fsClient.pullFromGoogleSheets(webhookUrl, 'all', apiKey || undefined);
     let invoicesCount = 0;
     let productsCount = 0;
     let customersCount = 0;
