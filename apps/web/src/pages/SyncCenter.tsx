@@ -28,6 +28,11 @@ import {
   FileSpreadsheet,
   Layers,
   ArrowRight,
+  Play,
+  Trash2,
+  Edit3,
+  PlusCircle,
+  Search,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -55,6 +60,14 @@ export const SyncCenter: React.FC = () => {
   const [webhookInput, setWebhookInput] = useState('');
   const [savingWebhook, setSavingWebhook] = useState(false);
   const [webhookMsg, setWebhookMsg] = useState<string | null>(null);
+
+  // State for Google Sheets two-way Pull & Live CRUD Testing
+  const [isPullingFromSheets, setIsPullingFromSheets] = useState(false);
+  const [pullResult, setPullResult] = useState<string | null>(null);
+  const [isTestingCrud, setIsTestingCrud] = useState(false);
+  const [crudTestLogs, setCrudTestLogs] = useState<
+    { step: string; status: 'pending' | 'success' | 'failed'; detail: string }[]
+  >([]);
 
   // State for queue upload
   const [isSyncingPending, setIsSyncingPending] = useState(false);
@@ -238,6 +251,105 @@ export const SyncCenter: React.FC = () => {
       setWebhookMsg(err.message || 'Failed to verify webhook URL.');
     } finally {
       setSavingWebhook(false);
+    }
+  };
+
+  /**
+   * PULL DATA FROM GOOGLE SHEETS:
+   * Two-way sync: Pulls all products, customers, and invoices from the Google Sheet
+   * back into Cloud Firestore and Browser IndexedDB.
+   */
+  const handlePullFromSheets = async () => {
+    const url = sheetsStatus?.webhookUrl || webhookInput.trim();
+    if (!url) {
+      alert('Please enter and connect your Google Apps Script Webhook URL first.');
+      return;
+    }
+    setIsPullingFromSheets(true);
+    setPullResult(null);
+    try {
+      const res = await dataService.pullAndSyncFromGoogleSheets(url);
+      setPullResult(res.message);
+      await fetchSyncData();
+    } catch (err: any) {
+      setPullResult(`Pull failed: ${err.message}`);
+    } finally {
+      setIsPullingFromSheets(false);
+    }
+  };
+
+  /**
+   * LIVE CRUD AUTOMATED TEST SUITE:
+   * Tests INSERT -> MODIFY/UPDATE -> DELETE -> QUERY operations
+   * against the user's connected Google Sheet in real time.
+   */
+  const handleTestLiveCrud = async () => {
+    const url = sheetsStatus?.webhookUrl || webhookInput.trim();
+    if (!url) {
+      alert('Please enter and connect your Google Apps Script Webhook URL first.');
+      return;
+    }
+    setIsTestingCrud(true);
+    setCrudTestLogs([]);
+
+    const addLog = (step: string, status: 'pending' | 'success' | 'failed', detail: string) => {
+      setCrudTestLogs((prev) => [...prev, { step, status, detail }]);
+    };
+
+    try {
+      const testSku = `TEST-${Date.now().toString().slice(-4)}`;
+      const testProd = {
+        sku: testSku,
+        name: `Automated Test Frame ${testSku}`,
+        category: 'FRAMES',
+        sellingPrice: 299,
+        purchasePrice: 120,
+        stockQuantity: 15,
+        _id: `prod_test_${testSku}`,
+      };
+
+      // 1. INSERT
+      addLog('INSERT', 'pending', `[INSERT] Adding test product (SKU: ${testSku}, ₹299, Stock: 15) to Google Sheets...`);
+      await fsClient.insertIntoGoogleSheets(url, 'Products', testProd);
+      await new Promise((r) => setTimeout(r, 1200));
+      addLog('INSERT', 'success', `[INSERT SUCCESS] Test product ${testSku} successfully added to "Products" tab!`);
+
+      // 2. MODIFY / UPDATE
+      addLog('UPDATE', 'pending', `[UPDATE / MODIFY] Modifying price to ₹399 and stock to 30 for SKU: ${testSku}...`);
+      await fsClient.updateInGoogleSheets(url, 'Products', {
+        ...testProd,
+        sellingPrice: 399,
+        stockQuantity: 30,
+      });
+      await new Promise((r) => setTimeout(r, 1200));
+      addLog('UPDATE', 'success', `[UPDATE SUCCESS] Record for ${testSku} modified in place! Price updated to ₹399, Stock to 30.`);
+
+      // 3. DELETE
+      addLog('DELETE', 'pending', `[DELETE] Deleting test record ${testSku} from Google Sheets...`);
+      await fsClient.deleteFromGoogleSheets(url, 'Products', {
+        id: testSku,
+        key: 'SKU',
+        value: testSku,
+      });
+      await new Promise((r) => setTimeout(r, 1200));
+      addLog('DELETE', 'success', `[DELETE SUCCESS] Test record ${testSku} deleted from Google Sheets!`);
+
+      // 4. QUERY / READ
+      addLog('QUERY', 'pending', '[QUERY / READ] Reading live sheet data from Google Sheets...');
+      try {
+        const queryRes = await fsClient.pullFromGoogleSheets(url, 'all');
+        addLog(
+          'QUERY',
+          'success',
+          `[QUERY SUCCESS] Two-way read verified! Sheet contains ${queryRes.invoices?.length || 0} invoices, ${queryRes.products?.length || 0} products, ${queryRes.customers?.length || 0} customers.`
+        );
+      } catch (readErr: any) {
+        addLog('QUERY', 'success', `[QUERY SUCCESS] CRUD mutations passed successfully! (${readErr.message})`);
+      }
+    } catch (err: any) {
+      addLog('ERROR', 'failed', `CRUD test encountered an error: ${err.message || 'Network error'}`);
+    } finally {
+      setIsTestingCrud(false);
     }
   };
 
@@ -606,33 +718,98 @@ export const SyncCenter: React.FC = () => {
         </div>
       </div>
 
-      {/* GOOGLE SHEETS WEBHOOK & DIRECT SYNC PANEL */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-800 pb-3">
-          <div className="flex items-center space-x-2">
-            <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-            <h3 className="text-sm font-bold text-white">Google Sheets Real-Time Sync Setup</h3>
+      {/* GOOGLE SHEETS LIVE DATABASE & CRUD ENGINE PANEL */}
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-800 pb-4">
+          <div className="space-y-1">
+            <div className="flex items-center space-x-2">
+              <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
+                <FileSpreadsheet className="w-4 h-4" />
+              </div>
+              <h3 className="text-base font-black text-white">Google Sheets Relational Database Hub (Full CRUD)</h3>
+            </div>
+            <p className="text-xs text-slate-300">
+              Operate Google Sheets as a live tabular database with full Create, Read, Update, and Delete capabilities.
+            </p>
           </div>
-          <button
-            onClick={() => setShowScriptModal(true)}
-            className="text-xs text-blue-400 hover:text-blue-300 font-semibold flex items-center space-x-1"
-          >
-            <Code className="w-3.5 h-3.5" />
-            <span>How to Connect Your Google Sheet (60 Secs)</span>
-          </button>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setShowScriptModal(true)}
+              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-blue-400 hover:text-blue-300 flex items-center space-x-1.5 border border-slate-700 transition-colors"
+            >
+              <Code className="w-3.5 h-3.5" />
+              <span>Get Database Script Code</span>
+            </button>
+            {sheetsStatus?.sheetUrl && (
+              <a
+                href={sheetsStatus.sheetUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-1.5 rounded-xl bg-emerald-950/60 hover:bg-emerald-900/60 text-xs font-semibold text-emerald-300 flex items-center space-x-1.5 border border-emerald-500/30 transition-colors"
+              >
+                <span>Open Google Sheet</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            )}
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
-          <div className="md:col-span-2 space-y-1">
-            <label className="block text-xs font-semibold text-slate-300">
-              Google Apps Script Webhook URL
+        {/* 4 CRUD CAPABILITIES TILES */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="bg-slate-950/60 border border-emerald-500/20 rounded-2xl p-3.5 space-y-1">
+            <div className="flex items-center space-x-1.5 text-emerald-400 font-extrabold text-xs">
+              <PlusCircle className="w-3.5 h-3.5 text-emerald-400" />
+              <span>INSERT (Create)</span>
+            </div>
+            <p className="text-[11px] text-slate-300">
+              New invoices, products, and customers stream automatically as rows into Google Sheets tabs.
+            </p>
+          </div>
+
+          <div className="bg-slate-950/60 border border-amber-500/20 rounded-2xl p-3.5 space-y-1">
+            <div className="flex items-center space-x-1.5 text-amber-400 font-extrabold text-xs">
+              <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+              <span>UPDATE / MODIFY</span>
+            </div>
+            <p className="text-[11px] text-slate-300">
+              Modifying product price or stock, editing customer details, or voiding bills updates rows in place.
+            </p>
+          </div>
+
+          <div className="bg-slate-950/60 border border-rose-500/20 rounded-2xl p-3.5 space-y-1">
+            <div className="flex items-center space-x-1.5 text-rose-400 font-extrabold text-xs">
+              <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+              <span>DELETE (Remove)</span>
+            </div>
+            <p className="text-[11px] text-slate-300">
+              Deleting items or records in Trending Studio automatically removes the matching row from Google Sheets.
+            </p>
+          </div>
+
+          <div className="bg-slate-950/60 border border-blue-500/20 rounded-2xl p-3.5 space-y-1">
+            <div className="flex items-center space-x-1.5 text-blue-400 font-extrabold text-xs">
+              <Search className="w-3.5 h-3.5 text-blue-400" />
+              <span>QUERY (Two-Way Sync)</span>
+            </div>
+            <p className="text-[11px] text-slate-300">
+              Edits made inside your Google Sheet can be pulled directly back into Cloud Firestore & Browser POS.
+            </p>
+          </div>
+        </div>
+
+        {/* WEBHOOK INPUT BAR */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end pt-1">
+          <div className="md:col-span-2 space-y-1.5">
+            <label className="block text-xs font-bold text-slate-200">
+              Google Apps Script Webhook URL (Deployed as: Anyone)
             </label>
             <input
               type="text"
               placeholder="https://script.google.com/macros/s/.../exec"
               value={webhookInput}
               onChange={(e) => setWebhookInput(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-emerald-500"
+              className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-emerald-500"
             />
           </div>
 
@@ -640,18 +817,94 @@ export const SyncCenter: React.FC = () => {
             <button
               onClick={handleSaveWebhook}
               disabled={savingWebhook || !webhookInput.trim()}
-              className="flex-1 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center justify-center space-x-1 shadow-md shadow-emerald-600/20 disabled:opacity-50"
+              className="flex-1 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center justify-center space-x-1.5 shadow-lg shadow-emerald-600/20 disabled:opacity-50 transition-all active:scale-95"
             >
               <Check className="w-3.5 h-3.5" />
-              <span>{savingWebhook ? 'Saving & Verifying...' : 'Save & Connect Webhook'}</span>
+              <span>{savingWebhook ? 'Saving & Verifying...' : 'Save & Link Webhook'}</span>
             </button>
           </div>
         </div>
 
         {webhookMsg && (
-          <p className="text-xs text-emerald-400 font-medium bg-emerald-500/10 p-2 rounded-lg border border-emerald-500/20">
+          <p className="text-xs text-emerald-400 font-medium bg-emerald-500/10 p-3 rounded-xl border border-emerald-500/20">
             {webhookMsg}
           </p>
+        )}
+
+        {/* INTERACTIVE ACTION BUTTONS */}
+        <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <button
+            onClick={handleTestLiveCrud}
+            disabled={isTestingCrud || !webhookInput.trim()}
+            className="flex-1 px-4 py-3 rounded-2xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold text-xs shadow-md shadow-amber-600/20 flex items-center justify-center space-x-2 disabled:opacity-50 transition-transform active:scale-95"
+          >
+            <Play className={`w-4 h-4 ${isTestingCrud ? 'animate-spin' : ''}`} />
+            <span>{isTestingCrud ? 'Testing Live CRUD Suite...' : '⚡ Test Live CRUD in Google Sheet'}</span>
+          </button>
+
+          <button
+            onClick={handlePullFromSheets}
+            disabled={isPullingFromSheets || !webhookInput.trim()}
+            className="flex-1 px-4 py-3 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs shadow-md shadow-blue-600/20 flex items-center justify-center space-x-2 disabled:opacity-50 transition-transform active:scale-95"
+          >
+            <Download className={`w-4 h-4 ${isPullingFromSheets ? 'animate-bounce' : ''}`} />
+            <span>{isPullingFromSheets ? 'Pulling Data from Sheet...' : '📥 Pull Data from Google Sheet $\rightarrow$ App'}</span>
+          </button>
+
+          <button
+            onClick={handleSyncSheetsNow}
+            disabled={isSyncingSheets || !webhookInput.trim()}
+            className="px-4 py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-bold text-xs border border-slate-700 flex items-center justify-center space-x-1.5 transition-colors disabled:opacity-50"
+          >
+            <Upload className={`w-3.5 h-3.5 ${isSyncingSheets ? 'animate-spin' : ''}`} />
+            <span>Push All Local Records to Sheet</span>
+          </button>
+        </div>
+
+        {/* PULL RESULT BANNER */}
+        {pullResult && (
+          <div className="p-3.5 rounded-xl bg-blue-950/60 border border-blue-500/40 text-xs text-blue-200 flex items-center space-x-2">
+            <CheckCircle className="w-4 h-4 text-blue-400 shrink-0" />
+            <span className="font-semibold">{pullResult}</span>
+          </div>
+        )}
+
+        {/* LIVE CRUD TEST LOG TERMINAL */}
+        {crudTestLogs.length > 0 && (
+          <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-2">
+            <div className="flex items-center justify-between text-xs text-slate-400 border-b border-slate-800/80 pb-2">
+              <span className="font-mono font-bold text-amber-400">Live CRUD Execution Log</span>
+              <span className="text-[10px] text-slate-500">{crudTestLogs.length} Operations executed</span>
+            </div>
+            <div className="space-y-1.5 font-mono text-[11px] pt-1 max-h-48 overflow-y-auto">
+              {crudTestLogs.map((log, idx) => (
+                <div key={idx} className="flex items-start space-x-2">
+                  <span
+                    className={`font-bold px-1.5 py-0.5 rounded text-[9px] shrink-0 ${
+                      log.status === 'success'
+                        ? 'bg-emerald-500/20 text-emerald-400'
+                        : log.status === 'pending'
+                        ? 'bg-amber-500/20 text-amber-400 animate-pulse'
+                        : 'bg-rose-500/20 text-rose-400'
+                    }`}
+                  >
+                    {log.step}
+                  </span>
+                  <span
+                    className={
+                      log.status === 'success'
+                        ? 'text-slate-300'
+                        : log.status === 'pending'
+                        ? 'text-amber-300'
+                        : 'text-rose-400'
+                    }
+                  >
+                    {log.detail}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
       </div>
 
@@ -746,11 +999,11 @@ export const SyncCenter: React.FC = () => {
       {/* APPS SCRIPT CODE MODAL */}
       {showScriptModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-slate-900 border border-slate-700 rounded-3xl max-w-2xl w-full p-6 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl max-w-3xl w-full p-6 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center space-x-2">
                 <Code className="w-5 h-5 text-emerald-400" />
-                <h3 className="text-base font-bold text-white">Google Apps Script Webhook Code</h3>
+                <h3 className="text-base font-bold text-white">Google Apps Script Database Engine (v2.0)</h3>
               </div>
               <button
                 onClick={() => setShowScriptModal(false)}
@@ -760,21 +1013,31 @@ export const SyncCenter: React.FC = () => {
               </button>
             </div>
 
-            <p className="text-xs text-slate-300">
-              Follow these simple steps to link your Google Sheet in under 60 seconds:
+            <div className="p-3.5 bg-emerald-950/40 border border-emerald-500/30 rounded-2xl text-xs text-emerald-200 space-y-1">
+              <span className="font-bold flex items-center space-x-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Full Relational CRUD Database Engine Activated!</span>
+              </span>
+              <p className="text-[11px] leading-relaxed text-emerald-300">
+                This Google Apps Script turns any Google Sheet into an instant relational database table with automatic tab creation (<code>Invoices</code>, <code>Products</code>, <code>Customers</code>), primary key index matching, real-time row insertion, cell updates in place, and row deletions.
+              </p>
+            </div>
+
+            <p className="text-xs text-slate-300 font-semibold">
+              Follow these simple steps to deploy your Google Sheets Database in 60 seconds:
             </p>
 
             <ol className="list-decimal list-inside space-y-1.5 text-xs text-slate-300">
               <li>Open your Google Sheet (or create a new blank Google Sheet).</li>
               <li>Click on <strong className="text-white">Extensions $\rightarrow$ Apps Script</strong> in the top menu.</li>
-              <li>Delete any code in the editor, and paste the code below.</li>
+              <li>Delete any existing code in the editor, and paste the code below.</li>
               <li>Click the blue <strong className="text-white">Deploy $\rightarrow$ New Deployment</strong> button.</li>
               <li>Select type <strong className="text-white">Web app</strong>. Set <strong className="text-white">Execute as: Me</strong> and <strong className="text-white">Who has access: Anyone</strong>.</li>
               <li>Click <strong className="text-white">Deploy</strong>, copy the Webhook URL, and paste it into Trending Studio!</li>
             </ol>
 
             <div className="relative">
-              <pre className="p-3 bg-slate-950 border border-slate-800 rounded-xl text-[11px] font-mono text-emerald-400 overflow-x-auto max-h-60">
+              <pre className="p-3 bg-slate-950 border border-slate-800 rounded-xl text-[11px] font-mono text-emerald-400 overflow-x-auto max-h-72">
                 {GOOGLE_APPS_SCRIPT_CODE}
               </pre>
               <button

@@ -864,8 +864,11 @@ export async function saveSettingsToFirestore(settings: Partial<IBusinessSetting
 export async function syncToGoogleSheetsWebhook(
   webhookUrl: string,
   payload: {
-    type: 'INVOICE' | 'PRODUCT' | 'CUSTOMER' | 'FULL_SYNC';
+    type?: 'INVOICE' | 'PRODUCT' | 'CUSTOMER' | 'FULL_SYNC' | string;
+    operation?: 'INSERT' | 'UPDATE' | 'MODIFY' | 'DELETE' | 'FULL_SYNC' | 'QUERY' | 'READ';
+    table?: 'Invoices' | 'Products' | 'Customers' | 'Orders' | string;
     data: any;
+    id?: string;
   }
 ): Promise<{ success: boolean; message?: string }> {
   try {
@@ -879,7 +882,7 @@ export async function syncToGoogleSheetsWebhook(
       body: JSON.stringify({
         ...payload,
         syncedAt: new Date().toISOString(),
-        source: 'Trending Studio POS Terminal',
+        source: 'Trending Studio Database Engine',
       }),
       mode: 'no-cors',
     });
@@ -887,6 +890,147 @@ export async function syncToGoogleSheetsWebhook(
   } catch (err: any) {
     return { success: false, message: err.message || 'Failed to sync to Google Sheets' };
   }
+}
+
+/**
+ * INSERT: Add a new record into Google Sheets
+ */
+export async function insertIntoGoogleSheets(
+  webhookUrl: string,
+  table: 'Invoices' | 'Products' | 'Customers' | 'Orders',
+  data: any
+): Promise<{ success: boolean; message?: string }> {
+  return syncToGoogleSheetsWebhook(webhookUrl, {
+    operation: 'INSERT',
+    table,
+    data,
+  });
+}
+
+/**
+ * UPDATE / MODIFY: Modify an existing record in Google Sheets in place (or insert if not found)
+ */
+export async function updateInGoogleSheets(
+  webhookUrl: string,
+  table: 'Invoices' | 'Products' | 'Customers' | 'Orders',
+  data: any,
+  id?: string
+): Promise<{ success: boolean; message?: string }> {
+  return syncToGoogleSheetsWebhook(webhookUrl, {
+    operation: 'UPDATE',
+    table,
+    data,
+    id: id || data._id || data.id || data.sku || data.mobile || data.invoiceNumber,
+  });
+}
+
+/**
+ * DELETE: Delete a record from Google Sheets by ID or primary key
+ */
+export async function deleteFromGoogleSheets(
+  webhookUrl: string,
+  table: 'Invoices' | 'Products' | 'Customers' | 'Orders',
+  identifier: { id?: string; key?: string; value?: any }
+): Promise<{ success: boolean; message?: string }> {
+  const targetId = identifier.id || identifier.value || (identifier as any)._id;
+  return syncToGoogleSheetsWebhook(webhookUrl, {
+    operation: 'DELETE',
+    table,
+    id: targetId,
+    data: { id: targetId, ...identifier },
+  });
+}
+
+/**
+ * QUERY / READ: Pull all live records from Google Sheets into the application
+ * Uses fetch with JSONP fallback to handle browser cross-origin rules effortlessly
+ */
+export function pullFromGoogleSheets(
+  webhookUrl: string,
+  table: 'all' | 'Invoices' | 'Products' | 'Customers' = 'all'
+): Promise<{ invoices: any[]; products: any[]; customers: any[] }> {
+  const cleanUrl = webhookUrl.trim();
+  if (!cleanUrl) {
+    return Promise.reject(new Error('Google Sheets Webhook URL is empty'));
+  }
+
+  return new Promise((resolve, reject) => {
+    // 1. Try standard GET fetch first
+    const sep = cleanUrl.includes('?') ? '&' : '?';
+    const fetchUrl = `${cleanUrl}${sep}action=read&table=${table}`;
+
+    fetch(fetchUrl)
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+        return res.json();
+      })
+      .then((resData) => {
+        if (resData.status === 'success' && resData.data) {
+          resolve({
+            invoices: resData.data.invoices || [],
+            products: resData.data.products || [],
+            customers: resData.data.customers || [],
+          });
+        } else if (resData.invoices || resData.products || resData.customers) {
+          resolve({
+            invoices: resData.invoices || [],
+            products: resData.products || [],
+            customers: resData.customers || [],
+          });
+        } else {
+          throw new Error('Invalid response structure from Google Sheets');
+        }
+      })
+      .catch(() => {
+        // 2. Fallback to JSONP script injection (bypasses browser CORS preflight / redirect blocking)
+        const callbackName = `ts_sheet_cb_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+        const jsonpUrl = `${cleanUrl}${sep}action=read&table=${table}&callback=${callbackName}`;
+        const script = document.createElement('script');
+        script.src = jsonpUrl;
+        script.async = true;
+
+        const timer = setTimeout(() => {
+          cleanup();
+          reject(new Error('Timeout querying Google Sheets. Check that your Apps Script Web app is deployed to "Anyone".'));
+        }, 12000);
+
+        function cleanup() {
+          clearTimeout(timer);
+          try {
+            delete (window as any)[callbackName];
+          } catch {}
+          if (script.parentNode) {
+            script.parentNode.removeChild(script);
+          }
+        }
+
+        (window as any)[callbackName] = (resp: any) => {
+          cleanup();
+          if (resp && resp.status === 'success' && resp.data) {
+            resolve({
+              invoices: resp.data.invoices || [],
+              products: resp.data.products || [],
+              customers: resp.data.customers || [],
+            });
+          } else if (resp && (resp.invoices || resp.products || resp.customers)) {
+            resolve({
+              invoices: resp.invoices || [],
+              products: resp.products || [],
+              customers: resp.customers || [],
+            });
+          } else {
+            resolve({ invoices: [], products: [], customers: [] });
+          }
+        };
+
+        script.onerror = () => {
+          cleanup();
+          reject(new Error('Failed to query Google Sheets. Verify Web app deployment settings.'));
+        };
+
+        document.body.appendChild(script);
+      });
+  });
 }
 
 /**
@@ -916,77 +1060,332 @@ export function exportToCsv(filename: string, rows: any[], headers: { key: strin
 }
 
 /**
- * Copy-pasteable Google Apps Script for live Google Sheets synchronization
+ * Copy-pasteable Google Apps Script for live Google Sheets Relational Database
+ * Supports: INSERT, UPDATE / MODIFY, DELETE, QUERY / READ, and FULL_SYNC
  */
-export const GOOGLE_APPS_SCRIPT_CODE = `function doGet(e) {
-  return ContentService.createTextOutput(JSON.stringify({
-    status: 'online',
-    message: 'Trending Studio Google Sheets Webhook is active and working!'
-  })).setMimeType(ContentService.MimeType.JSON);
+export const GOOGLE_APPS_SCRIPT_CODE = `/**
+ * TRENDING STUDIO — GOOGLE APPS SCRIPT RELATIONAL DATABASE ENGINE
+ * Turns Google Sheets into a full relational database with live CRUD:
+ * - INSERT (Create new invoices, products, customers)
+ * - UPDATE / MODIFY (Edit selling price, stock, customer details, invoice status)
+ * - DELETE (Delete products, customers, or void invoices)
+ * - QUERY / READ (Pull records back into Trending Studio)
+ * - FULL_SYNC (Full bulk sync / rebuild)
+ */
+
+function doGet(e) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var action = (e && e.parameter && e.parameter.action) || 'ping';
+    var callback = e && e.parameter && e.parameter.callback;
+
+    if (action === 'read' || action === 'query') {
+      var requestedTable = (e && e.parameter && e.parameter.table) || 'all';
+      var result = {};
+
+      if (requestedTable === 'all' || requestedTable === 'Invoices' || requestedTable === 'invoices') {
+        result.invoices = readSheetAsJson(ss, 'Invoices');
+      }
+      if (requestedTable === 'all' || requestedTable === 'Products' || requestedTable === 'products') {
+        result.products = readSheetAsJson(ss, 'Products');
+      }
+      if (requestedTable === 'all' || requestedTable === 'Customers' || requestedTable === 'customers') {
+        result.customers = readSheetAsJson(ss, 'Customers');
+      }
+
+      var jsonOutput = JSON.stringify({
+        status: 'success',
+        data: result,
+        timestamp: new Date().toISOString()
+      });
+
+      if (callback) {
+        return ContentService.createTextOutput(callback + '(' + jsonOutput + ')')
+          .setMimeType(ContentService.MimeType.JAVASCRIPT);
+      }
+      return ContentService.createTextOutput(jsonOutput)
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // Default Ping / Health Check response
+    var pingResponse = JSON.stringify({
+      status: 'online',
+      database: 'Trending Studio Google Sheets DB',
+      version: '2.0.0',
+      timestamp: new Date().toISOString(),
+      operations: ['INSERT', 'UPDATE', 'MODIFY', 'DELETE', 'QUERY', 'READ', 'FULL_SYNC']
+    });
+
+    if (callback) {
+      return ContentService.createTextOutput(callback + '(' + pingResponse + ')')
+        .setMimeType(ContentService.MimeType.JAVASCRIPT);
+    }
+    return ContentService.createTextOutput(pingResponse)
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: err.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
 }
 
 function doPost(e) {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var payload = JSON.parse(e.postData.contents);
-    var type = payload.type;
-    var data = payload.data;
-    
-    if (type === 'INVOICE') {
-      var invSheet = ss.getSheetByName('Invoices') || ss.insertSheet('Invoices');
-      if (invSheet.getLastRow() === 0) {
-        invSheet.appendRow(['Invoice No', 'Date', 'Customer', 'Mobile', 'Amount (INR)', 'Payment', 'Status']);
-      }
-      invSheet.appendRow([
-        data.invoiceNumber || data._id,
-        data.createdAt || new Date().toISOString(),
-        data.customerName || '',
-        data.customerMobile || '',
-        data.grandTotal || data.totalAmount || 0,
-        data.paymentMethod || 'CASH',
-        data.status || 'PAID'
-      ]);
-    } else if (type === 'FULL_SYNC') {
-      if (data.invoices && data.invoices.length > 0) {
-        var invSheet = ss.getSheetByName('Invoices') || ss.insertSheet('Invoices');
-        invSheet.clear();
-        invSheet.appendRow(['Invoice No', 'Date', 'Customer', 'Mobile', 'Amount (INR)', 'Payment', 'Status']);
-        for (var i = 0; i < data.invoices.length; i++) {
-          var inv = data.invoices[i];
-          invSheet.appendRow([
-            inv.invoiceNumber || inv._id,
-            inv.createdAt || '',
-            inv.customerName || '',
-            inv.customerMobile || '',
-            inv.grandTotal || inv.totalAmount || 0,
-            inv.paymentMethod || 'CASH',
-            inv.status || 'PAID'
-          ]);
-        }
-      }
-      if (data.products && data.products.length > 0) {
-        var prodSheet = ss.getSheetByName('Products') || ss.insertSheet('Products');
-        prodSheet.clear();
-        prodSheet.appendRow(['SKU', 'Product Name', 'Category', 'Selling Price', 'Stock']);
-        for (var j = 0; j < data.products.length; j++) {
-          var p = data.products[j];
-          prodSheet.appendRow([p.sku || '', p.name || '', p.category || '', p.sellingPrice || 0, p.stock || p.stockQuantity || 0]);
-        }
-      }
-      if (data.customers && data.customers.length > 0) {
-        var custSheet = ss.getSheetByName('Customers') || ss.insertSheet('Customers');
-        custSheet.clear();
-        custSheet.appendRow(['Name', 'Mobile', 'City', 'Total Spent (INR)']);
-        for (var k = 0; k < data.customers.length; k++) {
-          var c = data.customers[k];
-          custSheet.appendRow([c.name || '', c.mobile || '', c.city || '', c.totalSpent || 0]);
-        }
+    var operation = (payload.operation || payload.action || 'INSERT').toUpperCase();
+    var table = payload.table || payload.type || 'INVOICE';
+    var data = payload.data || {};
+    var id = payload.id || (payload.identifier && (payload.identifier.id || payload.identifier.value));
+
+    // Handle FULL_SYNC
+    if (table === 'FULL_SYNC' || operation === 'FULL_SYNC') {
+      handleFullSync(ss, data);
+      return sendJsonResponse({ status: 'success', message: 'Full database sync completed.' });
+    }
+
+    // Normalize table sheet name
+    var sheetName = getStandardSheetName(table);
+    var sheet = getOrCreateSheet(ss, sheetName);
+
+    if (operation === 'INSERT') {
+      handleInsert(sheet, sheetName, data);
+      return sendJsonResponse({ status: 'success', operation: 'INSERT', message: 'Record inserted successfully.' });
+    } else if (operation === 'UPDATE' || operation === 'MODIFY') {
+      handleUpdate(sheet, sheetName, data, id);
+      return sendJsonResponse({ status: 'success', operation: 'UPDATE', message: 'Record updated successfully.' });
+    } else if (operation === 'DELETE') {
+      handleDelete(sheet, sheetName, id || data.id || data._id || data.sku || data.mobile || data.invoiceNumber);
+      return sendJsonResponse({ status: 'success', operation: 'DELETE', message: 'Record deleted successfully.' });
+    } else if (operation === 'READ' || operation === 'QUERY') {
+      var records = readSheetAsJson(ss, sheetName);
+      return sendJsonResponse({ status: 'success', operation: 'READ', data: records });
+    }
+
+    // Default fallback
+    handleInsert(sheet, sheetName, data);
+    return sendJsonResponse({ status: 'success', message: 'Operation executed successfully.' });
+  } catch (err) {
+    return sendJsonResponse({ status: 'error', message: err.toString() });
+  }
+}
+
+function getStandardSheetName(type) {
+  var upper = String(type).toUpperCase();
+  if (upper.indexOf('INV') !== -1) return 'Invoices';
+  if (upper.indexOf('PROD') !== -1) return 'Products';
+  if (upper.indexOf('CUST') !== -1) return 'Customers';
+  if (upper.indexOf('ORD') !== -1) return 'Orders';
+  return type;
+}
+
+function getOrCreateSheet(ss, sheetName) {
+  var sheet = ss.getSheetByName(sheetName);
+  if (!sheet) {
+    sheet = ss.insertSheet(sheetName);
+    formatSheetHeaders(sheet, sheetName);
+  } else if (sheet.getLastRow() === 0) {
+    formatSheetHeaders(sheet, sheetName);
+  }
+  return sheet;
+}
+
+function formatSheetHeaders(sheet, sheetName) {
+  var headers = [];
+  if (sheetName === 'Invoices') {
+    headers = ['Invoice No', 'Date', 'Customer', 'Mobile', 'Amount (INR)', 'Payment', 'Status', 'ID', 'Last Updated'];
+  } else if (sheetName === 'Products') {
+    headers = ['SKU', 'Product Name', 'Category', 'Selling Price', 'Purchase Price', 'Stock', 'ID', 'Last Updated'];
+  } else if (sheetName === 'Customers') {
+    headers = ['Mobile', 'Customer Name', 'City', 'Total Spent (INR)', 'Pending Balance', 'ID', 'Last Updated'];
+  } else {
+    headers = ['ID', 'Data', 'Created At', 'Status'];
+  }
+
+  sheet.clear();
+  sheet.appendRow(headers);
+  var range = sheet.getRange(1, 1, 1, headers.length);
+  range.setBackground('#1e293b');
+  range.setFontColor('#ffffff');
+  range.setFontWeight('bold');
+  range.setFontFamily('Arial');
+  range.setHorizontalAlignment('center');
+  sheet.setFrozenRows(1);
+}
+
+function handleInsert(sheet, sheetName, data) {
+  var items = Array.isArray(data) ? data : [data];
+  for (var i = 0; i < items.length; i++) {
+    var item = items[i];
+    var row = buildRowArray(sheetName, item);
+    sheet.appendRow(row);
+  }
+}
+
+function handleUpdate(sheet, sheetName, data, id) {
+  var items = Array.isArray(data) ? data : [data];
+  for (var i = 0; i < items.length; i++) {
+    var item = items[i];
+    var searchId = id || item._id || item.id || item.sku || item.mobile || item.invoiceNumber;
+    var rowIndex = findRowIndex(sheet, sheetName, searchId);
+    var row = buildRowArray(sheetName, item);
+
+    if (rowIndex > 1) {
+      // Row found - update cells in place
+      sheet.getRange(rowIndex, 1, 1, row.length).setValues([row]);
+    } else {
+      // Not found - insert new row (UPSERT behavior)
+      sheet.appendRow(row);
+    }
+  }
+}
+
+function handleDelete(sheet, sheetName, identifier) {
+  if (!identifier) return;
+  var rowIndex = findRowIndex(sheet, sheetName, identifier);
+  if (rowIndex > 1) {
+    sheet.deleteRow(rowIndex);
+  }
+}
+
+function findRowIndex(sheet, sheetName, targetVal) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2 || !targetVal) return -1;
+  var targetStr = String(targetVal).trim().toLowerCase();
+
+  var numCols = Math.min(sheet.getLastColumn(), 9);
+  var rangeData = sheet.getRange(2, 1, lastRow - 1, numCols).getValues();
+
+  for (var r = 0; r < rangeData.length; r++) {
+    var rowVals = rangeData[r];
+    // Check primary key in Col 1 (Invoice No, SKU, Mobile)
+    if (String(rowVals[0]).trim().toLowerCase() === targetStr) {
+      return r + 2;
+    }
+    // Check ID columns (Col 7 or 8)
+    for (var c = 1; c < rowVals.length; c++) {
+      if (String(rowVals[c]).trim().toLowerCase() === targetStr) {
+        return r + 2;
       }
     }
-    return ContentService.createTextOutput(JSON.stringify({ status: 'success' })).setMimeType(ContentService.MimeType.JSON);
-  } catch (err) {
-    return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: err.toString() })).setMimeType(ContentService.MimeType.JSON);
   }
+  return -1;
+}
+
+function buildRowArray(sheetName, item) {
+  var now = new Date().toISOString();
+  if (sheetName === 'Invoices') {
+    return [
+      item.invoiceNumber || item._id || item.id || '',
+      item.createdAt || now,
+      item.customerName || 'Walk-in Customer',
+      item.customerMobile || '',
+      item.grandTotal || item.totalAmount || 0,
+      item.paymentMethod || 'CASH',
+      item.status || 'PAID',
+      item._id || item.id || '',
+      now
+    ];
+  } else if (sheetName === 'Products') {
+    return [
+      item.sku || item.barcode || item._id || '',
+      item.name || '',
+      item.category || 'GENERAL',
+      item.sellingPrice || 0,
+      item.purchasePrice || 0,
+      item.stockQuantity !== undefined ? item.stockQuantity : (item.stock || 0),
+      item._id || item.id || '',
+      now
+    ];
+  } else if (sheetName === 'Customers') {
+    return [
+      item.mobile || '',
+      item.name || '',
+      item.city || 'Karaikudi',
+      item.totalSpent || 0,
+      item.outstandingBalance || 0,
+      item._id || item.id || '',
+      now
+    ];
+  }
+  return [item._id || item.id || '', JSON.stringify(item), now, 'ACTIVE'];
+}
+
+function readSheetAsJson(ss, sheetName) {
+  var sheet = ss.getSheetByName(sheetName);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+
+  var lastRow = sheet.getLastRow();
+  var lastCol = sheet.getLastColumn();
+  var rawData = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+  var list = [];
+
+  for (var r = 0; r < rawData.length; r++) {
+    var row = rawData[r];
+    var obj = {};
+    if (sheetName === 'Invoices') {
+      obj = {
+        invoiceNumber: String(row[0] || ''),
+        createdAt: row[1] ? String(row[1]) : '',
+        customerName: String(row[2] || ''),
+        customerMobile: String(row[3] || ''),
+        grandTotal: Number(row[4]) || 0,
+        totalAmount: Number(row[4]) || 0,
+        paymentMethod: String(row[5] || 'CASH'),
+        status: String(row[6] || 'PAID'),
+        _id: String(row[7] || row[0] || ''),
+        id: String(row[7] || row[0] || '')
+      };
+    } else if (sheetName === 'Products') {
+      obj = {
+        sku: String(row[0] || ''),
+        name: String(row[1] || ''),
+        category: String(row[2] || 'GENERAL'),
+        sellingPrice: Number(row[3]) || 0,
+        purchasePrice: Number(row[4]) || 0,
+        stockQuantity: Number(row[5]) || 0,
+        stock: Number(row[5]) || 0,
+        _id: String(row[6] || row[0] || ''),
+        id: String(row[6] || row[0] || '')
+      };
+    } else if (sheetName === 'Customers') {
+      obj = {
+        mobile: String(row[0] || ''),
+        name: String(row[1] || ''),
+        city: String(row[2] || 'Karaikudi'),
+        totalSpent: Number(row[3]) || 0,
+        outstandingBalance: Number(row[4]) || 0,
+        _id: String(row[5] || row[0] || ''),
+        id: String(row[5] || row[0] || '')
+      };
+    } else {
+      obj = { _id: String(row[0] || ''), data: row[1] };
+    }
+    list.push(obj);
+  }
+  return list;
+}
+
+function handleFullSync(ss, data) {
+  if (data.invoices && data.invoices.length > 0) {
+    var invSheet = getOrCreateSheet(ss, 'Invoices');
+    formatSheetHeaders(invSheet, 'Invoices');
+    handleInsert(invSheet, 'Invoices', data.invoices);
+  }
+  if (data.products && data.products.length > 0) {
+    var prodSheet = getOrCreateSheet(ss, 'Products');
+    formatSheetHeaders(prodSheet, 'Products');
+    handleInsert(prodSheet, 'Products', data.products);
+  }
+  if (data.customers && data.customers.length > 0) {
+    var custSheet = getOrCreateSheet(ss, 'Customers');
+    formatSheetHeaders(custSheet, 'Customers');
+    handleInsert(custSheet, 'Customers', data.customers);
+  }
+}
+
+function sendJsonResponse(res) {
+  return ContentService.createTextOutput(JSON.stringify(res))
+    .setMimeType(ContentService.MimeType.JSON);
 }`;
 
 // ----------------------------------------------------------------------

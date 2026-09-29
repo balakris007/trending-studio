@@ -383,6 +383,26 @@ class OfflineDatabase {
     }
   }
 
+  public async deleteProductLocally(productId: string): Promise<void> {
+    try {
+      const db = await this.getDB();
+      const tx = db.transaction('products', 'readwrite');
+      tx.objectStore('products').delete(productId);
+    } catch (err) {
+      console.warn('[OfflineDB] Failed to delete product locally:', err);
+    }
+  }
+
+  public async deleteCustomerLocally(customerId: string): Promise<void> {
+    try {
+      const db = await this.getDB();
+      const tx = db.transaction('customers', 'readwrite');
+      tx.objectStore('customers').delete(customerId);
+    } catch (err) {
+      console.warn('[OfflineDB] Failed to delete customer locally:', err);
+    }
+  }
+
   public async seedDemoDataIfEmpty(): Promise<void> {
     try {
       const existing = await this.getCachedProducts();

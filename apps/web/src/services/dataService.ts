@@ -44,17 +44,39 @@ export const dataService = {
     return prods;
   },
 
+  async getGoogleSheetsWebhookUrl(): Promise<string | null> {
+    try {
+      const settings: any = await this.getSettings();
+      if (settings?.googleSheetsConfig?.webhookUrl && settings.googleSheetsConfig.enabled !== false) {
+        return settings.googleSheetsConfig.webhookUrl;
+      }
+    } catch {}
+    return null;
+  },
+
   async saveProduct(product: Partial<IProduct>): Promise<IProduct> {
+    let saved: IProduct;
     try {
       const res = await api.post('/products', product);
-      return res.data.data;
+      saved = res.data.data;
     } catch (apiErr) {
       // Direct Firestore
-      const saved = await fsClient.saveProductToFirestore(product);
+      saved = await fsClient.saveProductToFirestore(product);
       // Cache in IndexedDB
-      await offlineDb.cacheProducts([saved]);
-      return saved;
+      await offlineDb.saveProductLocally(saved);
     }
+
+    // Google Sheets Real-Time DB Upsert (INSERT / MODIFY)
+    try {
+      const webhookUrl = await this.getGoogleSheetsWebhookUrl();
+      if (webhookUrl) {
+        fsClient.updateInGoogleSheets(webhookUrl, 'Products', saved).catch((e) =>
+          console.warn('[DataService] Google Sheets product update notice:', e)
+        );
+      }
+    } catch {}
+
+    return saved;
   },
 
   async adjustProductStock(productId: string, quantityChange: number, notes?: string): Promise<void> {
@@ -68,6 +90,18 @@ export const dataService = {
       // Direct Firestore
       await fsClient.updateProductStockInFirestore(productId, quantityChange, notes);
     }
+
+    // Sync updated stock to Google Sheets
+    try {
+      const webhookUrl = await this.getGoogleSheetsWebhookUrl();
+      if (webhookUrl) {
+        const prods = await fsClient.getFirestoreProducts();
+        const p = prods.find((item) => (item._id || item.id) === productId);
+        if (p) {
+          fsClient.updateInGoogleSheets(webhookUrl, 'Products', p).catch(() => {});
+        }
+      }
+    } catch {}
   },
 
   async deleteProduct(productId: string): Promise<void> {
@@ -76,6 +110,17 @@ export const dataService = {
     } catch (apiErr) {
       await fsClient.deleteProductFromFirestore(productId);
     }
+    await offlineDb.deleteProductLocally(productId);
+
+    // Google Sheets Real-time DB Deletion
+    try {
+      const webhookUrl = await this.getGoogleSheetsWebhookUrl();
+      if (webhookUrl) {
+        fsClient.deleteFromGoogleSheets(webhookUrl, 'Products', { id: productId, key: 'ID' }).catch((e) =>
+          console.warn('[DataService] Google Sheets product delete notice:', e)
+        );
+      }
+    } catch {}
   },
 
   // ----------------------------------------------------------------------
@@ -112,14 +157,26 @@ export const dataService = {
   },
 
   async saveCustomer(customer: Partial<ICustomer>): Promise<ICustomer> {
+    let saved: ICustomer;
     try {
       const res = await api.post('/customers', customer);
-      return res.data.data;
+      saved = res.data.data;
     } catch (apiErr) {
-      const saved = await fsClient.saveCustomerToFirestore(customer);
-      await offlineDb.cacheCustomers([saved]);
-      return saved;
+      saved = await fsClient.saveCustomerToFirestore(customer);
+      await offlineDb.saveCustomerLocally(saved);
     }
+
+    // Google Sheets Real-Time DB Upsert (INSERT / MODIFY)
+    try {
+      const webhookUrl = await this.getGoogleSheetsWebhookUrl();
+      if (webhookUrl) {
+        fsClient.updateInGoogleSheets(webhookUrl, 'Customers', saved).catch((e) =>
+          console.warn('[DataService] Google Sheets customer update notice:', e)
+        );
+      }
+    } catch {}
+
+    return saved;
   },
 
   async getCustomerLedger(customerId: string): Promise<any[]> {
@@ -208,15 +265,14 @@ export const dataService = {
       }
     }
 
-    // Auto-push to Google Sheets if configured
+    // Real-Time INSERT into Google Sheets Database
     if (finalInvoice) {
       try {
-        const settings: any = await this.getSettings();
-        if (settings?.googleSheetsConfig?.webhookUrl && settings.googleSheetsConfig.enabled !== false) {
-          fsClient.syncToGoogleSheetsWebhook(settings.googleSheetsConfig.webhookUrl, {
-            type: 'INVOICE',
-            data: finalInvoice,
-          }).catch((e) => console.warn('[DataService] Auto sheet push error:', e));
+        const webhookUrl = await this.getGoogleSheetsWebhookUrl();
+        if (webhookUrl) {
+          fsClient.insertIntoGoogleSheets(webhookUrl, 'Invoices', finalInvoice).catch((e) =>
+            console.warn('[DataService] Auto sheet invoice insert notice:', e)
+          );
         }
       } catch {}
     }
@@ -230,6 +286,93 @@ export const dataService = {
     } catch (apiErr) {
       await fsClient.cancelFirestoreInvoice(invoiceId, reason);
     }
+
+    // Real-Time Google Sheets Status Update for Cancelled/Voided Invoice
+    try {
+      const webhookUrl = await this.getGoogleSheetsWebhookUrl();
+      if (webhookUrl) {
+        fsClient.updateInGoogleSheets(webhookUrl, 'Invoices', {
+          _id: invoiceId,
+          invoiceNumber: invoiceId,
+          status: 'CANCELLED',
+          cancellationReason: reason,
+        }).catch((e) => console.warn('[DataService] Google Sheets invoice cancel notice:', e));
+      }
+    } catch {}
+  },
+
+  /**
+   * PULL FROM GOOGLE SHEETS:
+   * Two-way sync: Reads all Invoices, Products, and Customers from Google Sheets
+   * and synchronizes them into Cloud Firestore & Browser IndexedDB.
+   */
+  async pullAndSyncFromGoogleSheets(customWebhookUrl?: string): Promise<{
+    success: boolean;
+    pulledCount: { invoices: number; products: number; customers: number };
+    message: string;
+  }> {
+    const webhookUrl = customWebhookUrl || (await this.getGoogleSheetsWebhookUrl());
+    if (!webhookUrl) {
+      throw new Error('Google Sheets Webhook URL is not configured. Please enter your Webhook URL in the Sync Center.');
+    }
+
+    const sheetData = await fsClient.pullFromGoogleSheets(webhookUrl);
+    let invoicesCount = 0;
+    let productsCount = 0;
+    let customersCount = 0;
+
+    // 1. Sync Products from Google Sheets
+    if (sheetData.products && sheetData.products.length > 0) {
+      for (const p of sheetData.products) {
+        if (p.name || p.sku) {
+          try {
+            const saved = await fsClient.saveProductToFirestore(p);
+            await offlineDb.saveProductLocally(saved);
+            productsCount++;
+          } catch {}
+        }
+      }
+    }
+
+    // 2. Sync Customers from Google Sheets
+    if (sheetData.customers && sheetData.customers.length > 0) {
+      for (const c of sheetData.customers) {
+        if (c.name || c.mobile) {
+          try {
+            const saved = await fsClient.saveCustomerToFirestore(c);
+            await offlineDb.saveCustomerLocally(saved);
+            customersCount++;
+          } catch {}
+        }
+      }
+    }
+
+    // 3. Sync Invoices from Google Sheets
+    if (sheetData.invoices && sheetData.invoices.length > 0) {
+      for (const inv of sheetData.invoices) {
+        if (inv.invoiceNumber) {
+          try {
+            await fsClient.saveInvoiceToFirestore(inv);
+            await offlineDb.saveOfflineInvoice({
+              ...inv,
+              syncStatus: 'SYNCED',
+              isOffline: false,
+            });
+            invoicesCount++;
+          } catch {}
+        }
+      }
+    }
+
+    return {
+      success: true,
+      pulledCount: {
+        invoices: invoicesCount,
+        products: productsCount,
+        customers: customersCount,
+      },
+      message: `Synchronized from Google Sheets: ${productsCount} products, ${customersCount} customers, ${invoicesCount} invoices!`,
+    };
   },
 
   // ----------------------------------------------------------------------
