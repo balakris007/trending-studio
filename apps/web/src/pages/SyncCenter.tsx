@@ -1153,13 +1153,22 @@ export const SyncCenter: React.FC = () => {
               Follow these simple steps to deploy your Google Sheets Database in 60 seconds:
             </p>
 
-            <ol className="list-decimal list-inside space-y-1.5 text-xs text-slate-300">
+            <ol className="list-decimal list-inside space-y-2 text-xs text-slate-300">
               <li>Open your Google Sheet (or create a new blank Google Sheet).</li>
               <li>Click on <strong className="text-white">Extensions $\rightarrow$ Apps Script</strong> in the top menu.</li>
               <li>Delete any existing code in the editor, and paste the code below.</li>
               <li>Click the blue <strong className="text-white">Deploy $\rightarrow$ New Deployment</strong> button.</li>
               <li>Select type <strong className="text-white">Web app</strong>. Set <strong className="text-white">Execute as: Me</strong> and <strong className="text-white">Who has access: Anyone</strong>.</li>
-              <li>Click <strong className="text-white">Deploy</strong>, copy the Webhook URL, and paste it into Trending Studio!</li>
+              <li>Click <strong className="text-white">Deploy</strong>. If Google asks for authorization:
+                <div className="ml-5 mt-1.5 p-2.5 bg-slate-950/80 border border-amber-500/30 rounded-xl text-[11px] text-amber-200/90 space-y-1">
+                  <p className="font-bold text-amber-300">Google Permission Authorization (One-Time):</p>
+                  <p>1. Click <strong className="text-white">Authorize Access</strong> or <strong className="text-white">Review permissions</strong> and choose your Google Account.</p>
+                  <p>2. On the <em>"Google hasn't verified this app"</em> screen, click <strong className="text-white underline">Advanced</strong> (small link at the bottom-left).</p>
+                  <p>3. Click <strong className="text-white underline">Go to Untitled project (unsafe)</strong>.</p>
+                  <p>4. Click the blue <strong className="text-emerald-400 font-bold">Allow</strong> button.</p>
+                </div>
+              </li>
+              <li>Copy the generated <strong className="text-white">Web app URL</strong> (ends in <code>/exec</code>) and paste it into Trending Studio!</li>
             </ol>
 
             <div className="p-3 bg-slate-950 border border-emerald-500/40 rounded-xl text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2">

@@ -1118,6 +1118,20 @@ export const GOOGLE_APPS_SCRIPT_CODE = `/**
 // 🔒 SET YOUR SECRET API KEY HERE (Matches the API Key saved in Trending Studio Sync Center)
 var API_SECRET = '__TS_API_SECRET_KEY__';
 
+/**
+ * ⚡ 1-CLICK AUTHORIZATION & CONNECTION TEST:
+ * Select 'testConnection' in the toolbar dropdown at the top and click 'Run'.
+ * This triggers Google's 1-time permission authorization and creates your sheet tabs!
+ */
+function testConnection() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  getOrCreateSheet(ss, 'Invoices');
+  getOrCreateSheet(ss, 'Products');
+  getOrCreateSheet(ss, 'Customers');
+  Logger.log('✅ Success! Google Account access authorized. Database tabs initialized for: ' + ss.getName());
+  return 'Connected to ' + ss.getName();
+}
+
 function isAuthorized(e, payload) {
   // If API_SECRET is unset or empty, allow access. If set, enforce strictly!
   if (!API_SECRET || API_SECRET === '__TS_API_SECRET_KEY__' || API_SECRET === '') {
