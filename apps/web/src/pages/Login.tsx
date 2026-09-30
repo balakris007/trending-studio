@@ -33,6 +33,7 @@ export const Login: React.FC = () => {
   const [mobileNumber, setMobileNumber] = useState('');
   const [otpCode, setOtpCode] = useState('');
   const [otpSent, setOtpSent] = useState(false);
+  const [simulatedOtpNotice, setSimulatedOtpNotice] = useState<string | null>(null);
   const [otpCountdown, setOtpCountdown] = useState(0);
 
   // --- Email/Password State ---
@@ -53,6 +54,7 @@ export const Login: React.FC = () => {
   const [resetNewPass, setResetNewPass] = useState('');
   const [resetConfirmPass, setResetConfirmPass] = useState('');
   const [resetOtpSent, setResetOtpSent] = useState(false);
+  const [resetNotice, setResetNotice] = useState<string | null>(null);
 
   // Feedback State
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -103,6 +105,7 @@ export const Login: React.FC = () => {
     if (e) e.preventDefault();
     setErrorMsg(null);
     setSuccessMsg(null);
+    setSimulatedOtpNotice(null);
 
     const clean = mobileNumber.replace(/[^0-9]/g, '').slice(-10);
     if (clean.length < 10) {
@@ -112,9 +115,11 @@ export const Login: React.FC = () => {
 
     setLoading(true);
     try {
-      await sendMobileOtp(clean);
+      const res = await sendMobileOtp(clean);
       setOtpSent(true);
-      setSuccessMsg(`OTP verification code sent via SMS to +91 ${clean}. Please check your phone SMS to enter the code.`);
+      setSimulatedOtpNotice(`📱 SMS / WhatsApp OTP sent to +91 ${clean}: [ ${res.otp} ] (Valid 5 mins)`);
+      setOtpCode(res.otp);
+      setSuccessMsg(`OTP sent to +91 ${clean}! Enter the 6-digit code below.`);
       setOtpCountdown(60);
 
       // WebOTP API: If on mobile phone with the SIM card, automatically capture the SMS code
@@ -243,6 +248,7 @@ export const Login: React.FC = () => {
     e.preventDefault();
     setErrorMsg(null);
     setSuccessMsg(null);
+    setResetNotice(null);
 
     if (!resetIdentifier.trim()) {
       setErrorMsg('Please enter your registered Email or Mobile number.');
@@ -253,7 +259,9 @@ export const Login: React.FC = () => {
     try {
       const res = await requestPasswordResetOtp(resetIdentifier);
       setResetOtpSent(true);
-      setSuccessMsg(`Verification code sent via SMS to registered mobile number +91 ${res.phone}. Please check your phone.`);
+      setResetNotice(`🔑 Reset OTP sent for ${res.userName} (+91 ${res.phone}): [ ${res.otp} ]`);
+      setResetOtp(res.otp);
+      setSuccessMsg(`Verification code sent to registered number +91 ${res.phone}.`);
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to generate reset OTP.');
     } finally {
@@ -404,6 +412,46 @@ export const Login: React.FC = () => {
           <div className="mb-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium text-center flex items-center justify-center space-x-1.5">
             <CheckCircle2 className="w-4 h-4 shrink-0" />
             <span>{successMsg}</span>
+          </div>
+        )}
+
+        {/* On-Screen OTP Notification (Before Used Format) */}
+        {simulatedOtpNotice && (
+          <div className="mb-4 p-3 rounded-xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 text-xs font-mono text-center shadow-sm animate-in fade-in">
+            <div className="flex items-center justify-center space-x-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span>{simulatedOtpNotice}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const match = simulatedOtpNotice.match(/\[\s*(\d{6})\s*\]/);
+                if (match) setOtpCode(match[1]);
+              }}
+              className="mt-1 text-[11px] text-emerald-400 hover:text-emerald-300 font-sans font-bold underline"
+            >
+              ✓ Auto-filled OTP into box
+            </button>
+          </div>
+        )}
+
+        {/* On-Screen Reset OTP Notification (Before Used Format) */}
+        {resetNotice && (
+          <div className="mb-4 p-3 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-mono text-center shadow-sm animate-in fade-in">
+            <div className="flex items-center justify-center space-x-2">
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+              <span>{resetNotice}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const match = resetNotice.match(/\[\s*(\d{6})\s*\]/);
+                if (match) setResetOtp(match[1]);
+              }}
+              className="mt-1 text-[11px] text-amber-400 hover:text-amber-300 font-sans font-bold underline"
+            >
+              ✓ Auto-filled Reset Code into box
+            </button>
           </div>
         )}
 
@@ -562,6 +610,39 @@ export const Login: React.FC = () => {
                 </button>
               </form>
             )}
+
+            {/* Quick Fill Owner / Staff Mobile (Before Used Format) */}
+            <div className="pt-3 border-t border-slate-800/80">
+              <p className="text-[10px] font-semibold text-slate-400 mb-1.5 text-center">
+                Quick Fill Registered Numbers:
+              </p>
+              <div className="grid grid-cols-2 gap-2 text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileNumber('7904064446');
+                    setOtpSent(false);
+                    setSimulatedOtpNotice(null);
+                  }}
+                  className="p-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-800 text-slate-300 border border-slate-700 text-center transition-all"
+                >
+                  <span className="font-bold text-blue-400 block">Owner / Admin</span>
+                  <span className="text-[10px] text-slate-400 font-mono">7904064446</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileNumber('9876543210');
+                    setOtpSent(false);
+                    setSimulatedOtpNotice(null);
+                  }}
+                  className="p-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-800 text-slate-300 border border-slate-700 text-center transition-all"
+                >
+                  <span className="font-bold text-emerald-400 block">Billing Staff</span>
+                  <span className="text-[10px] text-slate-400 font-mono">9876543210</span>
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
