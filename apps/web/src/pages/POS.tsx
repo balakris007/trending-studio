@@ -1131,7 +1131,7 @@ export const POS: React.FC = () => {
                     type="tel"
                     required
                     maxLength={10}
-                    placeholder="7904064446"
+                    placeholder="Enter 10-digit mobile number"
                     value={newCustomerMobile}
                     onChange={(e) => {
                       const val = e.target.value.replace(/[^0-9]/g, '');

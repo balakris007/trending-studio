@@ -426,7 +426,7 @@ export const Login: React.FC = () => {
                       value={mobileNumber}
                       onChange={(e) => setMobileNumber(e.target.value)}
                       required
-                      placeholder="7904064446"
+                      placeholder="Enter 10-digit mobile number"
                       className="w-full pl-11 pr-4 py-2.5 bg-slate-950 border border-slate-700/80 rounded-xl text-sm text-slate-100 font-mono placeholder-slate-500 focus:outline-none focus:border-blue-500"
                     />
                   </div>
@@ -498,37 +498,6 @@ export const Login: React.FC = () => {
                 </button>
               </form>
             )}
-
-            {/* Quick Fill Owner / Staff Mobile */}
-            <div className="pt-3 border-t border-slate-800/80">
-              <p className="text-[10px] font-semibold text-slate-400 mb-1.5 text-center">
-                Quick Fill Registered Numbers:
-              </p>
-              <div className="grid grid-cols-2 gap-2 text-[11px]">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMobileNumber('7904064446');
-                    setOtpSent(false);
-                  }}
-                  className="p-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-800 text-slate-300 border border-slate-700 text-center"
-                >
-                  <span className="font-bold text-blue-400 block">Owner / Admin</span>
-                  <span className="text-[10px] text-slate-400">7904064446</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMobileNumber('9876543210');
-                    setOtpSent(false);
-                  }}
-                  className="p-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-800 text-slate-300 border border-slate-700 text-center"
-                >
-                  <span className="font-bold text-emerald-400 block">Billing Staff</span>
-                  <span className="text-[10px] text-slate-400">9876543210</span>
-                </button>
-              </div>
-            </div>
           </div>
         )}
 
@@ -705,7 +674,7 @@ export const Login: React.FC = () => {
                     value={regPhone}
                     onChange={(e) => setRegPhone(e.target.value)}
                     required
-                    placeholder="7904064446"
+                    placeholder="10-digit mobile number"
                     className="w-full pl-8 pr-3 py-1.5 bg-slate-950 border border-slate-700/80 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500"
                   />
                 </div>
@@ -794,7 +763,7 @@ export const Login: React.FC = () => {
                       value={resetIdentifier}
                       onChange={(e) => setResetIdentifier(e.target.value)}
                       required
-                      placeholder="e.g. 7904064446 or admin@trendingstudio.com"
+                      placeholder="e.g. mobile number or email address"
                       className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-700/80 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500"
                     />
                   </div>
