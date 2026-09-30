@@ -4,7 +4,7 @@
 
 @layer base {
   body {
-    @apply bg-slate-950 text-slate-100 font-sans;
+    @apply bg-[#070b14] text-slate-100 font-sans antialiased selection:bg-pink-500 selection:text-white;
   }
 }
 
@@ -14,14 +14,95 @@
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #0f172a;
+  background: #090e1a;
 }
 ::-webkit-scrollbar-thumb {
-  background: #334155;
-  border-radius: 3px;
+  background: #1e293b;
+  border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+  background: #334155;
+}
+
+/* Trending Studio Signature Brand Gradients & Animations */
+@keyframes float-star {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg) scale(0.9);
+  }
+  50% {
+    transform: translateY(-14px) rotate(15deg) scale(1.15);
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 0.6;
+    filter: drop-shadow(0 0 12px rgba(255, 107, 0, 0.4));
+  }
+  50% {
+    opacity: 1;
+    filter: drop-shadow(0 0 22px rgba(0, 198, 255, 0.7));
+  }
+}
+
+@keyframes shimmer-sweep {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes aurora-shift {
+  0%, 100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(20px, -20px) scale(1.08);
+  }
+}
+
+/* Studio Branding Utilities */
+.text-studio-gradient {
+  background: linear-gradient(135deg, #FF6D00 0%, #FF007F 40%, #00C8FF 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.text-gold-gradient {
+  background: linear-gradient(135deg, #FFF9C4 0%, #FFD700 50%, #FF8F00 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.bg-studio-gradient {
+  background: linear-gradient(135deg, #FF6D00 0%, #FF007F 50%, #00C8FF 100%);
+}
+
+.bg-studio-gradient-subtle {
+  background: linear-gradient(135deg, rgba(255, 109, 0, 0.15) 0%, rgba(255, 0, 127, 0.15) 50%, rgba(0, 200, 255, 0.15) 100%);
+}
+
+.border-studio-gradient {
+  border-image: linear-gradient(135deg, #FF6D00, #FF007F, #00C8FF) 1;
+}
+
+.studio-glass-panel {
+  background: rgba(13, 20, 36, 0.78);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5), 0 0 20px rgba(255, 0, 128, 0.05);
+}
+
+.studio-window-frame {
+  box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.7), 0 0 30px rgba(0, 198, 255, 0.08);
+}
+
+.studio-shimmer-btn {
+  background-size: 200% auto;
+  animation: shimmer-sweep 4s linear infinite;
 }
 
 /* Print styles for A4, A5, and Thermal receipts */

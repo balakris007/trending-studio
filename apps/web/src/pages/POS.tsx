@@ -39,6 +39,7 @@ import {
   PaymentMethod,
   ICustomer,
 } from '@trending-studio/shared-types';
+import { triggerBillSuccessConfetti, triggerCelebration } from '../components/common/CelebrationBackground';
 
 export const POS: React.FC = () => {
   // Mobile Tab State
@@ -429,6 +430,9 @@ export const POS: React.FC = () => {
       setCompletedInvoice(finalInvoice);
       setShowPaymentModal(false);
       setShowReceiptModal(true);
+
+      // Trigger colorful brand celebration confetti!
+      triggerBillSuccessConfetti();
 
       // Clear Cart
       setCartItems([]);
