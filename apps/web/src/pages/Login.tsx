@@ -25,6 +25,7 @@ import { getApiBaseUrl } from '../services/api';
 import { Role } from '@trending-studio/shared-types';
 import { CelebrationBackground } from '../components/common/CelebrationBackground';
 import { ThemeToggle } from '../components/common/ThemeToggle';
+import { playIntroSplash } from '../components/common/IntroSplashScreen';
 
 export const Login: React.FC = () => {
   // Navigation Tabs: 'MOBILE_OTP' | 'EMAIL_PASS' | 'REGISTER' | 'RESET_PASS'
@@ -341,6 +342,14 @@ export const Login: React.FC = () => {
             <span className="text-[10px] font-mono text-slate-500 font-bold ml-1">WORKSTATION LOGIN</span>
           </div>
           <div className="flex items-center space-x-2">
+            <button
+              type="button"
+              onClick={() => playIntroSplash()}
+              className="px-2 py-0.5 rounded-full bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 text-[10px] font-bold transition-all shadow-sm active:scale-95 flex items-center space-x-1"
+              title="Watch Trending Studio Intro Video"
+            >
+              <span>🎬 Intro</span>
+            </button>
             <ThemeToggle compact={true} />
             <a
               href="https://wa.me/917904064446"

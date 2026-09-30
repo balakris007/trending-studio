@@ -5,6 +5,7 @@ import { Sidebar } from './Sidebar';
 import { MobileNav } from './MobileNav';
 import { CelebrationBackground, triggerCelebration } from '../common/CelebrationBackground';
 import { ThemeToggle } from '../common/ThemeToggle';
+import { playIntroSplash } from '../common/IntroSplashScreen';
 import { Sparkles, Clock, MessageCircle } from 'lucide-react';
 
 export const DashboardLayout: React.FC = () => {
@@ -75,6 +76,16 @@ export const DashboardLayout: React.FC = () => {
           >
             <Sparkles className="w-3 h-3 text-amber-300 group-hover:rotate-45 transition-transform" />
             <span className="hidden xs:inline">Celebrate 🎉</span>
+          </button>
+
+          {/* Intro Video Splash Trigger */}
+          <button
+            type="button"
+            onClick={() => playIntroSplash()}
+            className="flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/30 text-cyan-300 text-[10px] font-bold transition-all shadow-sm active:scale-95 group"
+            title="Watch Trending Studio Intro Animation"
+          >
+            <span>🎬 Intro</span>
           </button>
 
           {/* Theme Mode Toggle (Dark / Light) */}
