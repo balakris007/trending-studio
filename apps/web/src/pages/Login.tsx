@@ -858,51 +858,11 @@ export const Login: React.FC = () => {
             <span>⚡ Enter in Offline / Demo POS Mode</span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => setShowServerSettings(!showServerSettings)}
-            className="text-[10px] text-slate-500 hover:text-slate-300 flex items-center justify-center space-x-1 mx-auto pt-1"
-          >
-            <Server className="w-3 h-3" />
-            <span>Connection Mode: <strong className="text-slate-400">Direct Cloud Firestore</strong></span>
-          </button>
-
-          {showServerSettings && (
-            <div className="mt-2 p-3 bg-slate-950/80 border border-slate-800 rounded-xl text-left space-y-2">
-              <label className="text-[11px] font-semibold text-slate-300 block">
-                Custom API Gateway (Optional)
-              </label>
-              <input
-                type="text"
-                value={customApiUrl}
-                onChange={(e) => setCustomApiUrl(e.target.value)}
-                placeholder="https://trending-studio-api.onrender.com/api/v1"
-                className="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 font-mono"
-              />
-              <div className="flex items-center justify-between pt-1">
-                <button
-                  type="button"
-                  onClick={handleSaveApiUrl}
-                  className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold flex items-center space-x-1"
-                >
-                  {savedUrlSuccess ? <Check className="w-3 h-3" /> : null}
-                  <span>{savedUrlSuccess ? 'Saved!' : 'Save URL'}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCustomApiUrl('');
-                    localStorage.removeItem('ts_api_url');
-                    setSavedUrlSuccess(true);
-                    setTimeout(() => setSavedUrlSuccess(false), 2000);
-                  }}
-                  className="text-[10px] text-slate-400 hover:underline"
-                >
-                  Reset Default
-                </button>
-              </div>
-            </div>
-          )}
+          <div className="pt-2">
+            <p className="text-[11px] text-slate-500 text-center">
+              Trending Studio Billing & Studio Management System
+            </p>
+          </div>
         </div>
       </div>
     </div>
