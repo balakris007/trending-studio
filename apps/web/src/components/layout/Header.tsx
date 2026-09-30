@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { offlineDb } from '../../services/offlineDb';
 import { syncManager } from '../../services/syncManager';
+import { ThemeToggle } from '../common/ThemeToggle';
 
 interface HeaderProps {
   onOpenMenu?: () => void;
@@ -176,6 +177,9 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMenu }) => {
           <ShoppingCart className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white" />
           <span>+ Quick POS</span>
         </button>
+
+        {/* Theme Mode Toggle */}
+        <ThemeToggle compact={true} />
 
         {/* User Profile & Logout */}
         <div className="flex items-center space-x-2 sm:space-x-3 sm:border-l sm:border-slate-800 sm:pl-3">

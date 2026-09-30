@@ -24,6 +24,7 @@ import {
 import { getApiBaseUrl } from '../services/api';
 import { Role } from '@trending-studio/shared-types';
 import { CelebrationBackground } from '../components/common/CelebrationBackground';
+import { ThemeToggle } from '../components/common/ThemeToggle';
 
 export const Login: React.FC = () => {
   // Navigation Tabs: 'MOBILE_OTP' | 'EMAIL_PASS' | 'REGISTER' | 'RESET_PASS'
@@ -339,16 +340,19 @@ export const Login: React.FC = () => {
             <span className="w-3 h-3 rounded-full bg-emerald-400/80 inline-block shadow-sm"></span>
             <span className="text-[10px] font-mono text-slate-500 font-bold ml-1">WORKSTATION LOGIN</span>
           </div>
-          <a
-            href="https://wa.me/917904064446"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold transition-all shadow-sm group"
-            title="Chat with Trending Studio on WhatsApp"
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
-            <span>💬 79040-64446</span>
-          </a>
+          <div className="flex items-center space-x-2">
+            <ThemeToggle compact={true} />
+            <a
+              href="https://wa.me/917904064446"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold transition-all shadow-sm group"
+              title="Chat with Trending Studio on WhatsApp"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+              <span>💬 79040-64446</span>
+            </a>
+          </div>
         </div>
 
         {/* Brand Header with Uploaded Official Logo */}

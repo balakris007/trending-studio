@@ -4,6 +4,7 @@ import { Header } from './Header';
 import { Sidebar } from './Sidebar';
 import { MobileNav } from './MobileNav';
 import { CelebrationBackground, triggerCelebration } from '../common/CelebrationBackground';
+import { ThemeToggle } from '../common/ThemeToggle';
 import { Sparkles, Clock, MessageCircle } from 'lucide-react';
 
 export const DashboardLayout: React.FC = () => {
@@ -75,6 +76,9 @@ export const DashboardLayout: React.FC = () => {
             <Sparkles className="w-3 h-3 text-amber-300 group-hover:rotate-45 transition-transform" />
             <span className="hidden xs:inline">Celebrate 🎉</span>
           </button>
+
+          {/* Theme Mode Toggle (Dark / Light) */}
+          <ThemeToggle />
 
           {/* Clock */}
           <div className="flex items-center space-x-1 text-slate-400 font-mono text-[10px] bg-slate-900/80 px-2 py-0.5 rounded-md border border-slate-800">

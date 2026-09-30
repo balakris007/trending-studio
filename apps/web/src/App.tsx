@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ThemeProvider } from './context/ThemeContext';
 import { DashboardLayout } from './components/layout/DashboardLayout';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
@@ -100,39 +101,41 @@ export const App: React.FC = () => {
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <AuthProvider>
-        <BrowserRouter basename={basename}>
-          <Routes>
-            <Route path="/login" element={<Login />} />
+        <ThemeProvider>
+          <AuthProvider>
+            <BrowserRouter basename={basename}>
+              <Routes>
+                <Route path="/login" element={<Login />} />
 
-            <Route
-              path="/"
-              element={
-                <ProtectedRoute>
-                  <DashboardLayout />
-                </ProtectedRoute>
-              }
-            >
-              <Route index element={<Dashboard />} />
-              <Route path="pos" element={<POS />} />
-              <Route path="invoices" element={<Invoices />} />
-              <Route path="orders" element={<StudioOrders />} />
-              <Route path="customers" element={<Customers />} />
-              <Route path="products" element={<Products />} />
-              <Route path="photo-prints" element={<PhotoPrintPricing />} />
-              <Route path="frames" element={<FrameMaster />} />
-              <Route path="employees" element={<Employees />} />
-              <Route path="devices" element={<Devices />} />
-              <Route path="backups" element={<Backups />} />
-              <Route path="reports" element={<Reports />} />
-              <Route path="sync" element={<SyncCenter />} />
-              <Route path="settings" element={<Settings />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Route>
-          </Routes>
-        </BrowserRouter>
-      </AuthProvider>
-    </QueryClientProvider>
+                <Route
+                  path="/"
+                  element={
+                    <ProtectedRoute>
+                      <DashboardLayout />
+                    </ProtectedRoute>
+                  }
+                >
+                  <Route index element={<Dashboard />} />
+                  <Route path="pos" element={<POS />} />
+                  <Route path="invoices" element={<Invoices />} />
+                  <Route path="orders" element={<StudioOrders />} />
+                  <Route path="customers" element={<Customers />} />
+                  <Route path="products" element={<Products />} />
+                  <Route path="photo-prints" element={<PhotoPrintPricing />} />
+                  <Route path="frames" element={<FrameMaster />} />
+                  <Route path="employees" element={<Employees />} />
+                  <Route path="devices" element={<Devices />} />
+                  <Route path="backups" element={<Backups />} />
+                  <Route path="reports" element={<Reports />} />
+                  <Route path="sync" element={<SyncCenter />} />
+                  <Route path="settings" element={<Settings />} />
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </Route>
+              </Routes>
+            </BrowserRouter>
+          </AuthProvider>
+        </ThemeProvider>
+      </QueryClientProvider>
     </ErrorBoundary>
   );
 };
