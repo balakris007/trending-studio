@@ -58,8 +58,30 @@ export const Login: React.FC = () => {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Server Settings
-  const [showServerSettings, setShowServerSettings] = useState(false);
+  // App Mode State: 'PRODUCTION' vs 'DEVELOPER'
+  const [appMode, setAppMode] = useState<'PRODUCTION' | 'DEVELOPER'>(() => {
+    return (localStorage.getItem('ts_app_mode') as 'PRODUCTION' | 'DEVELOPER') || 'PRODUCTION';
+  });
+  const [logoClicks, setLogoClicks] = useState(0);
+
+  const toggleAppMode = () => {
+    const next = appMode === 'PRODUCTION' ? 'DEVELOPER' : 'PRODUCTION';
+    setAppMode(next);
+    localStorage.setItem('ts_app_mode', next);
+  };
+
+  const handleLogoClick = () => {
+    setLogoClicks((prev) => {
+      const next = prev + 1;
+      if (next >= 5) {
+        toggleAppMode();
+        return 0;
+      }
+      return next;
+    });
+  };
+
+  // Server Settings (Developer Mode)
   const [customApiUrl, setCustomApiUrl] = useState(localStorage.getItem('ts_api_url') || '');
   const [savedUrlSuccess, setSavedUrlSuccess] = useState(false);
 
@@ -306,7 +328,9 @@ export const Login: React.FC = () => {
             <img
               src="/logo.png"
               alt="Trending Studio Gifts & Frames"
-              className="w-56 sm:w-64 h-auto object-contain drop-shadow-xl hover:scale-105 transition-transform"
+              onClick={handleLogoClick}
+              className="w-56 sm:w-64 h-auto object-contain drop-shadow-xl hover:scale-105 transition-transform cursor-pointer select-none"
+              title="Tip: Click logo 5 times to toggle Developer Mode"
             />
           </div>
           <div className="inline-flex items-center space-x-1.5 px-3 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[10px] text-emerald-400 font-mono">
@@ -318,6 +342,23 @@ export const Login: React.FC = () => {
           </p>
         </div>
 
+        {/* Developer Mode Active Banner */}
+        {appMode === 'DEVELOPER' && (
+          <div className="mb-4 p-2.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center justify-between animate-in fade-in">
+            <div className="flex items-center space-x-2 font-bold">
+              <Server className="w-4 h-4 text-amber-400" />
+              <span>🛠️ Developer & Debug Mode</span>
+            </div>
+            <button
+              type="button"
+              onClick={toggleAppMode}
+              className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-[10px] font-bold transition-all border border-amber-500/30"
+            >
+              Switch to Production
+            </button>
+          </div>
+        )}
+
         {/* Global Notifications */}
         {errorMsg && (
           <div className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-medium text-center space-y-1.5">
@@ -325,14 +366,16 @@ export const Login: React.FC = () => {
               <AlertCircle className="w-3.5 h-3.5 shrink-0" />
               <span>{errorMsg}</span>
             </div>
-            <button
-              type="button"
-              onClick={() => handleOfflineEntry('admin')}
-              className="px-2.5 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-[10px] font-bold inline-flex items-center space-x-1"
-            >
-              <WifiOff className="w-3 h-3" />
-              <span>Offline / Demo Access</span>
-            </button>
+            {appMode === 'DEVELOPER' && (
+              <button
+                type="button"
+                onClick={() => handleOfflineEntry('admin')}
+                className="px-2.5 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-[10px] font-bold inline-flex items-center space-x-1"
+              >
+                <WifiOff className="w-3 h-3" />
+                <span>Offline / Demo Access (Dev)</span>
+              </button>
+            )}
           </div>
         )}
 
@@ -846,22 +889,99 @@ export const Login: React.FC = () => {
           </div>
         )}
 
-        {/* Offline Mode & Server Options */}
-        <div className="mt-4 pt-3 border-t border-slate-800/80 space-y-2">
-          <button
-            type="button"
-            onClick={() => handleOfflineEntry('admin')}
-            disabled={loading}
-            className="w-full py-2 bg-slate-800/80 hover:bg-slate-800 border border-indigo-500/30 hover:border-indigo-500/60 rounded-xl text-xs font-bold text-indigo-300 flex items-center justify-center space-x-1.5 transition-all shadow-sm"
-          >
-            <WifiOff className="w-3.5 h-3.5 text-indigo-400" />
-            <span>⚡ Enter in Offline / Demo POS Mode</span>
-          </button>
+        {/* Production vs Developer Mode Controls */}
+        <div className="mt-4 pt-3 border-t border-slate-800/80 space-y-3">
+          {appMode === 'DEVELOPER' && (
+            /* DEVELOPER MODE ONLY PANELS */
+            <div className="space-y-2.5 animate-in fade-in">
+              <div className="p-3 bg-slate-950/90 border border-slate-800 rounded-2xl space-y-2 text-left shadow-inner">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                    <Server className="w-3.5 h-3.5 text-blue-400" />
+                    <span>Connection Mode:</span>
+                  </span>
+                  <span className="px-2.5 py-0.5 bg-blue-500/10 text-blue-400 border border-blue-500/30 rounded-lg font-mono text-[10px] font-bold">
+                    Direct Cloud Firestore
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-500 leading-relaxed">
+                  Browser communicates directly with Google Cloud Firestore (<code>trending-studio</code> project) with offline IndexedDB caching.
+                </p>
 
-          <div className="pt-2">
-            <p className="text-[11px] text-slate-500 text-center">
-              Trending Studio Billing & Studio Management System
-            </p>
+                <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
+                  <label className="text-[11px] font-semibold text-slate-400 block">
+                    Custom API Gateway (Optional Override)
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={customApiUrl}
+                      onChange={(e) => setCustomApiUrl(e.target.value)}
+                      placeholder="https://trending-studio-api.onrender.com/api/v1"
+                      className="flex-1 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 font-mono focus:outline-none focus:border-blue-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSaveApiUrl}
+                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-blue-600/20"
+                    >
+                      {savedUrlSuccess ? 'Saved!' : 'Save'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCustomApiUrl('');
+                        localStorage.removeItem('ts_api_url');
+                        setSavedUrlSuccess(true);
+                        setTimeout(() => setSavedUrlSuccess(false), 2000);
+                      }}
+                      className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-xl text-[10px] font-semibold"
+                      title="Reset to Direct Cloud Firestore default"
+                    >
+                      Reset
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Developer Offline Sandbox Entry */}
+              <button
+                type="button"
+                onClick={() => handleOfflineEntry('admin')}
+                disabled={loading}
+                className="w-full py-2 bg-slate-800/80 hover:bg-slate-800 border border-indigo-500/30 hover:border-indigo-500/60 rounded-xl text-xs font-bold text-indigo-300 flex items-center justify-center space-x-1.5 transition-all shadow-sm"
+              >
+                <WifiOff className="w-3.5 h-3.5 text-indigo-400" />
+                <span>⚡ Enter in Offline / Demo POS Mode (Dev)</span>
+              </button>
+            </div>
+          )}
+
+          {/* Clean App Footer with Discreet Mode Switcher */}
+          <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
+            <span>Trending Studio Billing System</span>
+            <button
+              type="button"
+              onClick={toggleAppMode}
+              className={`px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold transition-all flex items-center space-x-1.5 border ${
+                appMode === 'DEVELOPER'
+                  ? 'bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20'
+                  : 'bg-slate-950 border-slate-800 hover:border-slate-700 text-slate-400 hover:text-slate-300'
+              }`}
+              title="Click to toggle between Production and Developer Mode"
+            >
+              {appMode === 'DEVELOPER' ? (
+                <>
+                  <Server className="w-3 h-3 text-amber-400" />
+                  <span>Mode: Developer 🛠️</span>
+                </>
+              ) : (
+                <>
+                  <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                  <span>Mode: Production 🔒</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
       </div>
