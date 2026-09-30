@@ -20,8 +20,26 @@ import {
 import { IBusinessSettings } from '@trending-studio/shared-types';
 import { formatISTDateTime } from '@trending-studio/utils';
 
+export const DEFAULT_BUSINESS_SETTINGS: Partial<IBusinessSettings> = {
+  businessName: 'Trending Studio Gifts & Frames',
+  tagline: 'Personalized Gifts, Custom Framing & Photo Printing',
+  phone: '7904064446',
+  whatsapp: '7904064446',
+  email: 'trendingstudiokkdi@gmail.com',
+  addressLine1: 'No:1, Meyyappan Ambalam Complex',
+  addressLine2: 'College Road, Near Bus Stand',
+  city: 'Karaikudi',
+  pincode: '630001',
+  state: 'Tamil Nadu',
+  stateCode: '33',
+  gstin: '33AABCT1234F1Z5',
+  pan: 'AABCT1234F',
+  invoicePrefix: 'TS-INV-',
+  financialYear: '26-27',
+};
+
 export const Settings: React.FC = () => {
-  const [settings, setSettings] = useState<Partial<IBusinessSettings>>({});
+  const [settings, setSettings] = useState<Partial<IBusinessSettings>>(DEFAULT_BUSINESS_SETTINGS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
@@ -70,9 +88,13 @@ export const Settings: React.FC = () => {
     const fetchSettings = async () => {
       try {
         const s = await dataService.getSettings();
-        setSettings(s || {});
+        setSettings({
+          ...DEFAULT_BUSINESS_SETTINGS,
+          ...(s || {}),
+        });
       } catch (err) {
         console.error('Failed to load settings:', err);
+        setSettings(DEFAULT_BUSINESS_SETTINGS);
       } finally {
         setLoading(false);
       }
@@ -215,15 +237,15 @@ export const Settings: React.FC = () => {
     setTimeout(() => setCopiedEmail(false), 3000);
   };
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSave = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     setSaving(true);
     setSuccessMsg('');
 
     try {
       await dataService.saveSettings(settings);
-      setSuccessMsg('Business settings updated successfully in Cloud Firestore!');
-      setTimeout(() => setSuccessMsg(''), 4000);
+      setSuccessMsg('Business settings & GST details updated successfully in Cloud Firestore!');
+      setTimeout(() => setSuccessMsg(''), 5000);
     } catch (err: any) {
       alert(err.message || 'Failed to update settings');
     } finally {
@@ -287,31 +309,55 @@ export const Settings: React.FC = () => {
 
   return (
     <div className="space-y-6 max-w-4xl">
-      <div className="flex items-center justify-between">
+      {/* Sticky Quick-Save Top Action Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sticky top-0 z-20 bg-slate-950/90 dark:bg-slate-950/90 py-3 px-4 rounded-2xl border border-slate-800 backdrop-blur-md shadow-xl">
         <div>
-          <h1 className="text-xl font-black text-white flex items-center space-x-2">
+          <h1 className="text-lg font-black text-white flex items-center space-x-2">
             <SettingsIcon className="w-5 h-5 text-blue-400" />
             <span>Business Configuration & Store Settings</span>
           </h1>
           <p className="text-xs text-slate-400">
-            Customize Trending Studio store branding, GST tax settings, invoice numbering, and thermal receipt layouts
+            Customize Trending Studio branding, GSTIN, invoice prefix & tax numbering
           </p>
         </div>
+
+        <button
+          type="button"
+          onClick={() => handleSave()}
+          disabled={saving}
+          className="px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-blue-600/30 flex items-center justify-center space-x-2 disabled:opacity-50 shrink-0 active:scale-95 transition-all"
+        >
+          <Save className="w-4 h-4" />
+          <span>{saving ? 'Saving...' : 'Save All Settings'}</span>
+        </button>
       </div>
 
       {successMsg && (
-        <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl text-xs font-bold text-center">
-          {successMsg}
+        <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl text-xs font-bold text-center flex items-center justify-center space-x-2 animate-in fade-in shadow-sm">
+          <Check className="w-4 h-4 text-emerald-400" />
+          <span>{successMsg}</span>
         </div>
       )}
 
       <form onSubmit={handleSave} className="space-y-6">
         {/* Card 1: Store Identity */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
-          <h2 className="text-sm font-bold text-white flex items-center space-x-2">
-            <Store className="w-4 h-4 text-blue-400" />
-            <span>Business Identity & Contact</span>
-          </h2>
+          <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+            <h2 className="text-sm font-bold text-white flex items-center space-x-2">
+              <Store className="w-4 h-4 text-blue-400" />
+              <span>Business Identity & Contact</span>
+            </h2>
+            <button
+              type="button"
+              onClick={() => handleSave()}
+              disabled={saving}
+              className="px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white border border-blue-500/40 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 active:scale-95"
+              title="Save Business Identity & Contact changes"
+            >
+              <Save className="w-3.5 h-3.5" />
+              <span>{saving ? 'Saving...' : 'Save Identity'}</span>
+            </button>
+          </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -435,10 +481,22 @@ export const Settings: React.FC = () => {
 
         {/* Card 2: GST & Invoicing */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
-          <h2 className="text-sm font-bold text-white flex items-center space-x-2">
-            <Receipt className="w-4 h-4 text-emerald-400" />
-            <span>GSTIN, Tax & Invoice Numbering</span>
-          </h2>
+          <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+            <h2 className="text-sm font-bold text-white flex items-center space-x-2">
+              <Receipt className="w-4 h-4 text-emerald-400" />
+              <span>GSTIN, Tax & Invoice Numbering</span>
+            </h2>
+            <button
+              type="button"
+              onClick={() => handleSave()}
+              disabled={saving}
+              className="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/40 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 active:scale-95"
+              title="Save GSTIN, Tax & Invoice Numbering changes"
+            >
+              <Save className="w-3.5 h-3.5" />
+              <span>{saving ? 'Saving...' : 'Save Tax & Numbering'}</span>
+            </button>
+          </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
