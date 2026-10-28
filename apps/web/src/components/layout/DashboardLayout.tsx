@@ -78,14 +78,14 @@ export const DashboardLayout: React.FC = () => {
             <span className="hidden xs:inline">Celebrate 🎉</span>
           </button>
 
-          {/* Intro Video Splash Trigger */}
+          {/* App Starting Logo Splash Trigger */}
           <button
             type="button"
             onClick={() => playIntroSplash()}
             className="flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/30 text-cyan-300 text-[10px] font-bold transition-all shadow-sm active:scale-95 group"
-            title="Watch Trending Studio Intro Animation"
+            title="View Trending Studio Starting Splash Screen"
           >
-            <span>🎬 Intro</span>
+            <span>✨ Splash</span>
           </button>
 
           {/* Theme Mode Toggle (Dark / Light) */}

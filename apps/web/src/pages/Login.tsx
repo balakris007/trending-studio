@@ -346,9 +346,9 @@ export const Login: React.FC = () => {
               type="button"
               onClick={() => playIntroSplash()}
               className="px-2 py-0.5 rounded-full bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 text-[10px] font-bold transition-all shadow-sm active:scale-95 flex items-center space-x-1"
-              title="Watch Trending Studio Intro Video"
+              title="View Trending Studio Starting Splash Screen"
             >
-              <span>🎬 Intro</span>
+              <span>✨ Splash</span>
             </button>
             <ThemeToggle compact={true} />
             <a
