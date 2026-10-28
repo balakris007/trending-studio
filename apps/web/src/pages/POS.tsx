@@ -18,6 +18,8 @@ import { formatINR, formatISTDateTime } from '@trending-studio/utils';
 import {
   Search,
   UserPlus,
+  User,
+  Phone,
   Plus,
   Minus,
   Trash2,
@@ -38,6 +40,8 @@ import {
   LaminationType,
   PaymentMethod,
   ICustomer,
+  CustomerType,
+  SyncStatus,
 } from '@trending-studio/shared-types';
 import { triggerBillSuccessConfetti, triggerCelebration } from '../components/common/CelebrationBackground';
 
@@ -108,7 +112,7 @@ export const POS: React.FC = () => {
         if (cachedProds.length > 0) setProducts(cachedProds);
         if (cachedCusts.length > 0) {
           setCustomers(cachedCusts);
-          setSelectedCustomer(cachedCusts[0]);
+          // Do not auto-select first customer; each bill must prompt for customer details
         }
       } catch {}
 
@@ -126,9 +130,6 @@ export const POS: React.FC = () => {
         }
         if (freshCusts.length > 0) {
           setCustomers(freshCusts);
-          if (!selectedCustomer) {
-            setSelectedCustomer(freshCusts[0]);
-          }
         }
         if (freshMatrix && Array.isArray(freshMatrix) && freshMatrix.length > 0) {
           setPwfMatrix(freshMatrix);
@@ -327,44 +328,120 @@ export const POS: React.FC = () => {
     setCartItems(updated);
   };
 
+  // Real-time lookup of existing customer when typing mobile in customer modal
+  const matchedCustomer = React.useMemo(() => {
+    const clean = newCustomerMobile.trim().replace(/[^0-9]/g, '');
+    if (clean.length >= 6) {
+      return customers.find(
+        (c) => c.mobile && c.mobile.replace(/[^0-9]/g, '').slice(-10) === clean.slice(-10)
+      );
+    }
+    return null;
+  }, [newCustomerMobile, customers]);
+
   const handleQuickAddCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newCustomerName || !newCustomerMobile) return;
+    if (!newCustomerName.trim() || !newCustomerMobile.trim()) {
+      alert('Please enter Customer Name and Mobile Number.');
+      return;
+    }
 
     try {
+      const cleanMobile = newCustomerMobile.trim().replace(/[^0-9]/g, '').slice(-10);
+      const cleanName = newCustomerName.trim();
       const finalWhatsapp = isWhatsappSameAsMobile
-        ? newCustomerMobile.trim()
-        : (newCustomerWhatsapp.trim() || newCustomerMobile.trim());
+        ? cleanMobile
+        : (newCustomerWhatsapp.trim().replace(/[^0-9]/g, '').slice(-10) || cleanMobile);
 
-      const created = await dataService.saveCustomer({
-        name: newCustomerName.trim(),
-        mobile: newCustomerMobile.trim(),
-        whatsapp: finalWhatsapp,
-        address: newCustomerAddress.trim(),
-        isWhatsappSameAsMobile,
-        city: 'Karaikudi',
-        state: 'Tamil Nadu',
-      });
-      setSelectedCustomer(created);
-      setCustomers([created, ...customers]);
+      // Check if existing customer matches
+      const existing = customers.find(
+        (c) => c.mobile && c.mobile.replace(/[^0-9]/g, '').slice(-10) === cleanMobile
+      );
+
+      let savedCustomer: ICustomer;
+
+      if (existing && existing._id) {
+        savedCustomer = await dataService.saveCustomer({
+          ...existing,
+          name: cleanName,
+          mobile: cleanMobile,
+          whatsapp: finalWhatsapp,
+          address: newCustomerAddress.trim() || existing.address,
+          isWhatsappSameAsMobile,
+        });
+      } else {
+        savedCustomer = await dataService.saveCustomer({
+          name: cleanName,
+          mobile: cleanMobile,
+          whatsapp: finalWhatsapp,
+          address: newCustomerAddress.trim() || undefined,
+          isWhatsappSameAsMobile,
+          city: 'Karaikudi',
+          state: 'Tamil Nadu',
+        });
+        setCustomers((prev) => [
+          savedCustomer,
+          ...prev.filter((c) => (c._id || c.id) !== (savedCustomer._id || savedCustomer.id)),
+        ]);
+      }
+
+      setSelectedCustomer(savedCustomer);
       setShowAddCustomerModal(false);
+
+      // If cart has items, seamlessly proceed directly to Payment tender!
+      if (cartItems.length > 0) {
+        setTenderAmount(billCalculation.grandTotal);
+        setCashAmount(Math.floor(billCalculation.grandTotal / 2));
+        setUpiAmount(billCalculation.grandTotal - Math.floor(billCalculation.grandTotal / 2));
+        setShowPaymentModal(true);
+      }
+    } catch (err: any) {
+      alert(err.message || 'Failed to save customer');
+    }
+  };
+
+  const handleQuickWalkIn = () => {
+    const walkInId = `walkin_${Date.now()}`;
+    const walkIn: ICustomer = {
+      id: walkInId,
+      _id: walkInId,
+      name: 'Walk-in Customer',
+      mobile: '9999999999',
+      whatsapp: '9999999999',
+      isWhatsappSameAsMobile: true,
+      customerType: CustomerType.INDIVIDUAL,
+      outstandingBalance: 0,
+      version: 1,
+      syncStatus: SyncStatus.SYNCED,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      city: 'Karaikudi',
+      state: 'Tamil Nadu',
+    };
+    setSelectedCustomer(walkIn);
+    setShowAddCustomerModal(false);
+    if (cartItems.length > 0) {
+      setTenderAmount(billCalculation.grandTotal);
+      setCashAmount(Math.floor(billCalculation.grandTotal / 2));
+      setUpiAmount(billCalculation.grandTotal - Math.floor(billCalculation.grandTotal / 2));
+      setShowPaymentModal(true);
+    }
+  };
+
+  const handleOpenCheckout = () => {
+    if (cartItems.length === 0) {
+      alert('Cart is empty. Please add items before checkout.');
+      return;
+    }
+
+    // Every time booking a bill, ask for customer name and contact details!
+    if (!selectedCustomer) {
       setNewCustomerName('');
       setNewCustomerMobile('');
       setNewCustomerWhatsapp('');
       setNewCustomerAddress('');
       setIsWhatsappSameAsMobile(true);
-    } catch (err: any) {
-      alert(err.message || 'Failed to create customer');
-    }
-  };
-
-  const handleOpenCheckout = () => {
-    if (!selectedCustomer) {
-      alert('Please select or create a customer before checkout.');
-      return;
-    }
-    if (cartItems.length === 0) {
-      alert('Cart is empty.');
+      setShowAddCustomerModal(true);
       return;
     }
 
@@ -434,9 +511,16 @@ export const POS: React.FC = () => {
       // Trigger colorful brand celebration confetti!
       triggerBillSuccessConfetti();
 
-      // Clear Cart
+      // Clear Cart and reset customer selection so NEXT bill asks for fresh customer details
       setCartItems([]);
       setOverallDiscount(0);
+      setSelectedCustomer(null);
+      setCustomerSearch('');
+      setNewCustomerName('');
+      setNewCustomerMobile('');
+      setNewCustomerWhatsapp('');
+      setNewCustomerAddress('');
+      setIsWhatsappSameAsMobile(true);
     } catch (err: any) {
       alert(err.response?.data?.error || err.message || 'Failed to generate invoice.');
     } finally {
@@ -934,42 +1018,105 @@ export const POS: React.FC = () => {
           </button>
           <span className="text-xs text-slate-300 font-bold">Review & Bill ({cartItems.length})</span>
         </div>
-        {/* Customer Header */}
-        <div className="p-3 bg-slate-950/60 border-b border-slate-800 flex items-center justify-between">
-          <div className="flex-1 mr-2">
-            {selectedCustomer ? (
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="flex items-center space-x-1.5">
-                    <p className="text-xs font-bold text-white">{selectedCustomer.name}</p>
-                    {selectedCustomer.address && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 truncate max-w-[130px]" title={selectedCustomer.address}>
-                        📍 {selectedCustomer.address}
-                      </span>
-                    )}
+
+        {/* Desktop Cart Header */}
+        <div className="hidden lg:flex px-4 py-2.5 bg-slate-950/90 border-b border-slate-800 items-center justify-between shrink-0">
+          <div className="flex items-center space-x-2">
+            <ShoppingCart className="w-4 h-4 text-cyan-400" />
+            <span className="text-xs text-white font-bold">Current Bill & Cart ({cartItems.length})</span>
+          </div>
+          {cartItems.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                if (confirm('Clear current bill items and start fresh?')) {
+                  setCartItems([]);
+                  setOverallDiscount(0);
+                  setSelectedCustomer(null);
+                  setCustomerSearch('');
+                }
+              }}
+              className="text-[11px] text-rose-400 hover:text-rose-300 font-semibold flex items-center space-x-1 transition-colors"
+            >
+              <Trash2 className="w-3 h-3" />
+              <span>Clear</span>
+            </button>
+          )}
+        </div>
+        {/* Customer Header Section */}
+        <div className="p-3 bg-slate-950/80 border-b border-slate-800">
+          {selectedCustomer ? (
+            <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-900 border border-slate-700/80">
+              <div className="flex-1 mr-2">
+                <div className="flex items-center space-x-2">
+                  <span className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-400 font-bold uppercase tracking-wider border border-emerald-500/30">
+                    Customer
+                  </span>
+                  <p className="text-xs font-bold text-white">{selectedCustomer.name}</p>
+                </div>
+                <div className="flex items-center space-x-2 text-[11px] font-mono text-slate-400 mt-1">
+                  <span>📱 +91 {selectedCustomer.mobile}</span>
+                  {selectedCustomer.whatsapp && selectedCustomer.whatsapp !== selectedCustomer.mobile && (
+                    <span className="text-emerald-400">💬 {selectedCustomer.whatsapp}</span>
+                  )}
+                  {selectedCustomer.address && (
+                    <span className="text-slate-500 truncate max-w-[130px]" title={selectedCustomer.address}>
+                      • 📍 {selectedCustomer.address}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setNewCustomerName(selectedCustomer.name);
+                  setNewCustomerMobile(selectedCustomer.mobile);
+                  setNewCustomerWhatsapp(selectedCustomer.whatsapp || selectedCustomer.mobile);
+                  setNewCustomerAddress(selectedCustomer.address || '');
+                  setShowAddCustomerModal(true);
+                }}
+                className="text-[11px] px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-blue-400 font-semibold transition-all border border-slate-700"
+              >
+                Change
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <div
+                onClick={() => {
+                  setNewCustomerName('');
+                  setNewCustomerMobile('');
+                  setNewCustomerWhatsapp('');
+                  setNewCustomerAddress('');
+                  setShowAddCustomerModal(true);
+                }}
+                className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between cursor-pointer hover:bg-amber-500/20 transition-all group"
+              >
+                <div className="flex items-center space-x-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold shrink-0">
+                    <User className="w-4 h-4" />
                   </div>
-                  <div className="flex items-center space-x-2 text-[11px] font-mono text-slate-400 mt-0.5">
-                    <span>📱 {selectedCustomer.mobile}</span>
-                    {selectedCustomer.whatsapp && selectedCustomer.whatsapp !== selectedCustomer.mobile && (
-                      <span className="text-emerald-400">💬 {selectedCustomer.whatsapp}</span>
-                    )}
+                  <div>
+                    <p className="text-xs font-bold text-amber-300 group-hover:text-amber-200">
+                      Enter Customer Name & Mobile *
+                    </p>
+                    <p className="text-[10px] text-slate-400">
+                      Required for booking bill & WhatsApp receipt
+                    </p>
                   </div>
                 </div>
-                <button
-                  onClick={() => setSelectedCustomer(null)}
-                  className="text-[11px] text-blue-400 hover:underline"
-                >
-                  Change
-                </button>
+                <span className="text-[11px] px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold group-hover:scale-105 transition-transform shrink-0 shadow-sm">
+                  + Add Details
+                </span>
               </div>
-            ) : (
+
+              {/* Or Quick Search Dropdown */}
               <div className="relative">
                 <input
                   type="text"
-                  placeholder="Select or Search Customer..."
+                  placeholder="Or search existing customer by phone or name..."
                   value={customerSearch}
                   onChange={(e) => setCustomerSearch(e.target.value)}
-                  className="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white"
+                  className="w-full px-3 py-1.5 bg-slate-900 border border-slate-700/80 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
                 />
                 {customerSearch && filteredCustomers.length > 0 && (
                   <div className="absolute left-0 top-full mt-1 w-full bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-20 max-h-48 overflow-y-auto">
@@ -991,16 +1138,8 @@ export const POS: React.FC = () => {
                   </div>
                 )}
               </div>
-            )}
-          </div>
-
-          <button
-            onClick={() => setShowAddCustomerModal(true)}
-            title="Quick Add Customer"
-            className="p-2 rounded-lg bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 transition-colors"
-          >
-            <UserPlus className="w-4 h-4" />
-          </button>
+            </div>
+          )}
         </div>
 
         {/* Cart Line Items */}
@@ -1097,20 +1236,83 @@ export const POS: React.FC = () => {
     </div>
 
       {/* MODAL 1: QUICK ADD CUSTOMER */}
+      {/* MODAL 1: MANDATORY CUSTOMER DETAILS FOR BILL */}
       {showAddCustomerModal && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl">
             <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="font-bold text-white text-base">Quick Add Customer</h3>
-                <p className="text-xs text-slate-400">Save profile for billing, receipts, & WhatsApp</p>
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-orange-500/20 via-pink-500/20 to-cyan-500/20 border border-orange-500/30 text-amber-400 flex items-center justify-center">
+                  <User className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-base">Customer Details for Bill</h3>
+                  <p className="text-xs text-slate-400">Name & contact required for billing & WhatsApp</p>
+                </div>
               </div>
-              <button onClick={() => setShowAddCustomerModal(false)} className="text-slate-400 hover:text-white">
-                <X className="w-4 h-4" />
+              <button
+                onClick={() => setShowAddCustomerModal(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
               </button>
             </div>
 
             <form onSubmit={handleQuickAddCustomer} className="space-y-3.5">
+              {/* Mobile Number first with live lookup */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Customer Mobile Number (10 Digits) *
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-2.5 text-xs text-slate-400 font-mono">+91</span>
+                  <input
+                    type="tel"
+                    required
+                    maxLength={10}
+                    placeholder="Enter 10-digit mobile number"
+                    value={newCustomerMobile}
+                    autoFocus
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/[^0-9]/g, '');
+                      setNewCustomerMobile(val);
+                      if (isWhatsappSameAsMobile) {
+                        setNewCustomerWhatsapp(val);
+                      }
+                    }}
+                    className="w-full pl-11 pr-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white font-mono placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+                  />
+                </div>
+              </div>
+
+              {/* Matched Existing Customer Found Banner */}
+              {matchedCustomer && (
+                <div className="p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-between animate-in fade-in">
+                  <div>
+                    <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">
+                      ✓ Existing Customer Found
+                    </span>
+                    <p className="text-xs font-bold text-white">{matchedCustomer.name}</p>
+                    {matchedCustomer.address && (
+                      <p className="text-[10px] text-slate-400 truncate max-w-[200px]">
+                        📍 {matchedCustomer.address}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewCustomerName(matchedCustomer.name);
+                      if (matchedCustomer.address) setNewCustomerAddress(matchedCustomer.address);
+                    }}
+                    className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md transition-all active:scale-95"
+                  >
+                    Auto-Fill
+                  </button>
+                </div>
+              )}
+
+              {/* Customer Name */}
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
                   Customer Name *
@@ -1121,37 +1323,13 @@ export const POS: React.FC = () => {
                   placeholder="e.g. Ramesh Kannan"
                   value={newCustomerName}
                   onChange={(e) => setNewCustomerName(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
                 />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Mobile Number (10 Digits) *
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-2 text-xs text-slate-400 font-mono">+91</span>
-                  <input
-                    type="tel"
-                    required
-                    maxLength={10}
-                    placeholder="Enter 10-digit mobile number"
-                    value={newCustomerMobile}
-                    onChange={(e) => {
-                      const val = e.target.value.replace(/[^0-9]/g, '');
-                      setNewCustomerMobile(val);
-                      if (isWhatsappSameAsMobile) {
-                        setNewCustomerWhatsapp(val);
-                      }
-                    }}
-                    className="w-full pl-11 pr-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white font-mono placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                  />
-                </div>
               </div>
 
               {/* WhatsApp Checkbox Option */}
               <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 space-y-2">
-                <label className="flex items-center space-x-2 text-xs text-slate-300 font-medium cursor-pointer">
+                <label className="flex items-center space-x-2 text-xs text-slate-300 font-medium cursor-pointer select-none">
                   <input
                     type="checkbox"
                     checked={isWhatsappSameAsMobile}
@@ -1187,25 +1365,38 @@ export const POS: React.FC = () => {
                 )}
               </div>
 
+              {/* Customer Address / Notes */}
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Customer Address / Location
+                  Customer Address / Location <span className="text-slate-500 font-normal">(Optional)</span>
                 </label>
                 <textarea
                   rows={2}
                   placeholder="e.g. 14/B Sekkalai Road, Karaikudi"
                   value={newCustomerAddress}
                   onChange={(e) => setNewCustomerAddress(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 resize-none"
                 />
               </div>
 
-              <button
-                type="submit"
-                className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold text-xs shadow-md shadow-blue-600/30 transition-all"
-              >
-                Save & Continue Billing
-              </button>
+              {/* Action Buttons */}
+              <div className="space-y-2 pt-1">
+                <button
+                  type="submit"
+                  className="w-full py-3 bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white rounded-xl font-bold text-sm shadow-lg shadow-emerald-600/30 transition-all flex items-center justify-center space-x-1.5 active:scale-98"
+                >
+                  <span>Save & Proceed to Payment</span>
+                  <span>➔</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleQuickWalkIn}
+                  className="w-full py-2 bg-slate-800/80 hover:bg-slate-800 text-slate-400 hover:text-slate-300 rounded-xl font-medium text-xs transition-colors flex items-center justify-center space-x-1"
+                >
+                  <span>⚡ Quick Walk-in (No Phone / Cash Slip)</span>
+                </button>
+              </div>
             </form>
           </div>
         </div>
@@ -1358,7 +1549,17 @@ export const POS: React.FC = () => {
                 >
                   Switch to {receiptType === 'THERMAL' ? 'A4 Format' : '58mm Thermal'}
                 </button>
-                <button onClick={() => setShowReceiptModal(false)} className="text-slate-400">
+                <button
+                  onClick={() => {
+                    setShowReceiptModal(false);
+                    setCompletedInvoice(null);
+                    setSelectedCustomer(null);
+                    setCartItems([]);
+                    setOverallDiscount(0);
+                    setCustomerSearch('');
+                  }}
+                  className="text-slate-400 hover:text-white"
+                >
                   <X className="w-4 h-4" />
                 </button>
               </div>
@@ -1452,7 +1653,7 @@ export const POS: React.FC = () => {
             </div>
 
             {/* Print & Share Action Buttons */}
-            <div className="pt-4 mt-2 flex items-center justify-between gap-3">
+            <div className="pt-4 mt-2 flex flex-col sm:flex-row items-center justify-between gap-2.5">
               <button
                 onClick={() => {
                   const targetPhone = completedInvoice.customerWhatsapp || completedInvoice.customerMobile || '';
@@ -1462,7 +1663,7 @@ export const POS: React.FC = () => {
                   );
                   window.open(`https://wa.me/91${cleanPhone}?text=${message}`, '_blank');
                 }}
-                className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5"
+                className="w-full sm:flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 transition-all"
               >
                 <Share2 className="w-4 h-4" />
                 <span>Share WhatsApp</span>
@@ -1470,10 +1671,25 @@ export const POS: React.FC = () => {
 
               <button
                 onClick={() => window.print()}
-                className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 shadow-lg shadow-blue-600/30"
+                className="w-full sm:flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 shadow-lg shadow-blue-600/30 transition-all"
               >
                 <Printer className="w-4 h-4" />
                 <span>Print Bill</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setShowReceiptModal(false);
+                  setCompletedInvoice(null);
+                  setSelectedCustomer(null);
+                  setCartItems([]);
+                  setOverallDiscount(0);
+                  setCustomerSearch('');
+                }}
+                className="w-full sm:w-auto px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 transition-all"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Next Bill</span>
               </button>
             </div>
           </div>
